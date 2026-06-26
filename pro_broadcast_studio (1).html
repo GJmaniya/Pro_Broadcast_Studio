@@ -835,10 +835,14 @@
                     }
                     if (msg.type === 'FPS_ACK') {
                         const fpsDisplay = document.getElementById('controller-active-fps');
+                        if (fpsDisplay && fpsDisplay.innerText.includes('Auto')) {
+                            fpsDisplay.innerText = msg.fps === 'auto' ? 'Player: Auto FPS' : `Target: ${msg.fps} FPS`;
+                        }
+                    }
+                    if (msg.type === 'ACTUAL_FPS') {
+                        const fpsDisplay = document.getElementById('controller-active-fps');
                         if (fpsDisplay) {
-                            fpsDisplay.innerText = msg.fps === 'auto' ? 'Player FPS: Auto' : `Player FPS: ${msg.fps}`;
-                            fpsDisplay.classList.add('text-emerald-400');
-                            setTimeout(() => fpsDisplay.classList.remove('text-emerald-400'), 1000);
+                            fpsDisplay.innerText = `Player: ${msg.fps} FPS`;
                         }
                     }
                 });
@@ -1624,13 +1628,6 @@
 
             window.playerTargetFps = 'auto';
 
-            // Show current resolution badge
-            const badge = document.createElement('div');
-            badge.id = 'res-badge';
-            badge.style.cssText = 'position:fixed; top:16px; right:16px; z-index:201; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:12px; font-weight:700; padding:6px 14px; border-radius:8px; backdrop-filter:blur(8px); transition: all 0.3s ease;';
-            badge.innerText = activeRes.h + 'p | Native FPS';
-            document.body.appendChild(badge);
-
             // Highlight the correct button in the player quality panel
             highlightPlayerQualityBtn(activeRes.h);
 
@@ -1645,13 +1642,6 @@
                 // Send quality change to host to reduce capture resolution & network bandwidth
                 if (hostConnection && hostConnection.open) {
                     hostConnection.send({ type: 'QUALITY_CHANGE', quality: height });
-                }
-
-                // Update badge
-                const b = document.getElementById('res-badge');
-                if (b) {
-                    const fpsStr = window.playerTargetFps === 'auto' ? 'Native FPS' : window.playerTargetFps + ' FPS';
-                    b.innerText = activeRes.h + 'p | ' + fpsStr;
                 }
 
                 highlightPlayerQualityBtn(height);
@@ -1683,6 +1673,42 @@
                     }
                 });
             }
+
+            // Measure actual playback FPS and send to controller
+            let lastFrameCount = 0;
+            let lastFpsTime = performance.now();
+            
+            setInterval(() => {
+                if (hostConnection && hostConnection.open) {
+                    const container = document.getElementById('player-layer-container');
+                    if (!container) return;
+                    
+                    const videos = Array.from(container.querySelectorAll('video')).filter(v => !v.paused && v.readyState >= 2);
+                    if (videos.length > 0) {
+                        const video = videos[0]; // main stream
+                        if (typeof video.getVideoPlaybackQuality === 'function') {
+                            const quality = video.getVideoPlaybackQuality();
+                            const now = performance.now();
+                            const frames = quality.totalVideoFrames;
+                            
+                            if (lastFrameCount > 0 && frames >= lastFrameCount) {
+                                const deltaFrames = frames - lastFrameCount;
+                                const deltaTime = (now - lastFpsTime) / 1000;
+                                const currentFps = Math.round(deltaFrames / deltaTime);
+                                
+                                if (currentFps >= 0 && currentFps < 144) {
+                                    hostConnection.send({ type: 'ACTUAL_FPS', fps: currentFps });
+                                }
+                            }
+                            lastFrameCount = frames;
+                            lastFpsTime = now;
+                        }
+                    } else {
+                        lastFrameCount = 0;
+                        lastFpsTime = performance.now();
+                    }
+                }
+            }, 1000);
 
             peer = new Peer(peerConfig);
             
@@ -1728,11 +1754,7 @@
 
                     if (msg.type === 'FPS_CHANGE') {
                         window.playerTargetFps = msg.fps;
-                        const b = document.getElementById('res-badge');
-                        if (b) {
-                            const fpsStr = window.playerTargetFps === 'auto' ? 'Native FPS' : window.playerTargetFps + ' FPS';
-                            b.innerText = activeRes.h + 'p | ' + fpsStr;
-                        }
+                        
                         // Acknowledge back to controller so it knows player is running at this FPS
                         if (hostConnection && hostConnection.open) {
                             hostConnection.send({ type: 'FPS_ACK', fps: msg.fps });
@@ -1742,11 +1764,7 @@
                     if (msg.type === 'FULL_SYNC') {
                         if (msg.fps) {
                             window.playerTargetFps = msg.fps;
-                            const b = document.getElementById('res-badge');
-                            if (b) {
-                                const fpsStr = window.playerTargetFps === 'auto' ? 'Native FPS' : window.playerTargetFps + ' FPS';
-                                b.innerText = activeRes.h + 'p | ' + fpsStr;
-                            }
+                            
                             if (hostConnection && hostConnection.open) {
                                 hostConnection.send({ type: 'FPS_ACK', fps: msg.fps });
                             }
