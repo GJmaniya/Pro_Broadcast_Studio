@@ -34,10 +34,18 @@
             overflow: hidden;
         }
 
-        /* Video streaming quality: crisp upscaling when resolution is lower than canvas */
-        .low-res-mode video,
-        .low-res-mode img {
-            image-rendering: auto;
+        /* Quality rendering: hidden source videos, visible canvas output */
+        .quality-source-video {
+            position: absolute !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            width: 0 !important;
+            height: 0 !important;
+        }
+        .quality-canvas {
+            width: 1920px;
+            height: 1080px;
+            pointer-events: none;
         }
 
         #player-canvas {
@@ -1336,23 +1344,40 @@
             return RESOLUTIONS[1080];
         }
 
-        // Current active resolution — controls video ELEMENT sizes (not the canvas)
+        // Current active resolution — controls video CLARITY (not size)
         let activeRes = getPlayerResolution();
 
-        // Resize all video/image/iframe elements inside the player to match the active resolution
-        function applyVideoResolutionToAllLayers() {
-            const container = document.getElementById('player-layer-container');
-            if (!container) return;
-            container.querySelectorAll('video, img, iframe').forEach(media => {
-                media.style.width = activeRes.w + 'px';
-                media.style.height = activeRes.h + 'px';
-            });
-            // Add low-res CSS class for crisp rendering when below 1080p
-            const canvas = document.getElementById('player-canvas');
-            if (canvas) {
-                if (activeRes.h < 1080) canvas.classList.add('low-res-mode');
-                else canvas.classList.remove('low-res-mode');
+        // Track all quality rendering loops so we can update them
+        window._qualityCanvases = {};
+
+        // Start a rendering loop that draws a video source onto a canvas at the active resolution
+        function startQualityRenderLoop(layerId, sourceVideo, displayCanvas) {
+            const ctx = displayCanvas.getContext('2d');
+            // Set canvas internal resolution to quality setting
+            displayCanvas.width = activeRes.w;
+            displayCanvas.height = activeRes.h;
+
+            window._qualityCanvases[layerId] = { source: sourceVideo, canvas: displayCanvas, ctx: ctx };
+
+            function drawFrame() {
+                if (!window._qualityCanvases[layerId]) return;
+                if (!sourceVideo.paused && !sourceVideo.ended && sourceVideo.readyState >= 2) {
+                    ctx.drawImage(sourceVideo, 0, 0, displayCanvas.width, displayCanvas.height);
+                }
+                requestAnimationFrame(drawFrame);
             }
+            requestAnimationFrame(drawFrame);
+        }
+
+        // Update all quality canvases when resolution changes
+        function updateAllQualityCanvases() {
+            Object.keys(window._qualityCanvases).forEach(id => {
+                const entry = window._qualityCanvases[id];
+                if (entry && entry.canvas) {
+                    entry.canvas.width = activeRes.w;
+                    entry.canvas.height = activeRes.h;
+                }
+            });
         }
 
         function initPlayer() {
@@ -1381,19 +1406,16 @@
             badge.innerText = activeRes.h + 'p';
             document.body.appendChild(badge);
 
-            // Apply initial video resolution to any existing layers
-            applyVideoResolutionToAllLayers();
-
             // Highlight the correct button in the player quality panel
             highlightPlayerQualityBtn(activeRes.h);
 
-            // Live quality switch — changes VIDEO ELEMENT sizes, not canvas
+            // Live quality switch — changes video CLARITY by updating canvas internal resolution
             window.switchPlayerQuality = function(height) {
                 if (!RESOLUTIONS[height]) return;
                 activeRes = RESOLUTIONS[height];
 
-                // Resize all video/image/iframe elements to the new streaming resolution
-                applyVideoResolutionToAllLayers();
+                // Update all rendering canvases to new internal resolution (clarity changes)
+                updateAllQualityCanvases();
 
                 // Update badge
                 const b = document.getElementById('res-badge');
@@ -1535,7 +1557,9 @@
                 container.appendChild(el);
 
                 if (layer.type === 'video') {
+                    // Hidden source video
                     const vid = document.createElement('video');
+                    vid.className = 'quality-source-video';
                     if (layer.isStreamedMedia) {
                         if (window.remoteStreams && window.remoteStreams[id]) vid.srcObject = window.remoteStreams[id];
                     } else {
@@ -1544,9 +1568,14 @@
                     vid.loop = true; vid.playsInline = true;
                     if (layer.audio) { vid.volume = layer.audio.volume; vid.muted = layer.audio.muted; }
                     vid.play().catch(e => console.log("Autoplay waiting..."));
-                    vid.style.width = activeRes.w + 'px'; vid.style.height = activeRes.h + 'px';
                     vid.draggable = false;
                     el.appendChild(vid);
+                    // Visible quality canvas (renders at selected resolution, displayed at 1920x1080)
+                    const qCanvas = document.createElement('canvas');
+                    qCanvas.className = 'quality-canvas';
+                    el.appendChild(qCanvas);
+                    vid.addEventListener('playing', () => startQualityRenderLoop(id, vid, qCanvas));
+                    startQualityRenderLoop(id, vid, qCanvas);
                 } else if (layer.type === 'audio') {
                     const aud = document.createElement('audio');
                     if (layer.isStreamedMedia) {
@@ -1559,27 +1588,34 @@
                     aud.play().catch(e => console.log("Autoplay waiting..."));
                     el.appendChild(aud);
                 } else if (layer.type === 'camera') {
+                    // Hidden source video
                     const vid = document.createElement('video');
+                    vid.className = 'quality-source-video';
                     if (window.remoteStreams && window.remoteStreams[id]) {
                         vid.srcObject = window.remoteStreams[id];
                     }
                     vid.playsInline = true;
                     if (layer.audio) { vid.volume = layer.audio.volume; vid.muted = layer.audio.muted; }
                     vid.play().catch(e => console.log("Autoplay waiting..."));
-                    vid.style.width = activeRes.w + 'px'; vid.style.height = activeRes.h + 'px';
                     vid.draggable = false;
                     el.appendChild(vid);
+                    // Visible quality canvas
+                    const qCanvas = document.createElement('canvas');
+                    qCanvas.className = 'quality-canvas';
+                    el.appendChild(qCanvas);
+                    vid.addEventListener('playing', () => startQualityRenderLoop(id, vid, qCanvas));
+                    startQualityRenderLoop(id, vid, qCanvas);
                 } else if (layer.type === 'iframe') {
                     const frame = document.createElement('iframe');
                     frame.src = layer.src; frame.frameBorder = "0";
                     frame.allow = "autoplay; fullscreen";
-                    frame.style.width = activeRes.w + 'px'; frame.style.height = activeRes.h + 'px';
+                    frame.style.width = '1920px'; frame.style.height = '1080px';
                     el.appendChild(frame);
                 } else if (layer.type === 'image') {
                     const img = document.createElement('img');
                     img.src = layer.src;
-                    img.style.width = activeRes.w + 'px';
-                    img.style.height = activeRes.h + 'px';
+                    img.style.width = '1920px';
+                    img.style.height = '1080px';
                     img.style.objectFit = 'contain';
                     img.draggable = false;
                     el.appendChild(img);
@@ -1614,9 +1650,13 @@
 
             // Update Stream if it arrived late (Handling WebRTC Race Condition)
             if (layer.type === 'camera' || layer.isStreamedMedia) {
-                if (mediaNode && !mediaNode.srcObject && window.remoteStreams && window.remoteStreams[id]) {
-                    mediaNode.srcObject = window.remoteStreams[id];
-                    mediaNode.play().catch(e=>console.log(e));
+                const sourceVid = el.querySelector('video');
+                if (sourceVid && !sourceVid.srcObject && window.remoteStreams && window.remoteStreams[id]) {
+                    sourceVid.srcObject = window.remoteStreams[id];
+                    sourceVid.play().catch(e=>console.log(e));
+                    // Ensure quality canvas render loop starts
+                    const qCanvas = el.querySelector('.quality-canvas');
+                    if (qCanvas) startQualityRenderLoop(id, sourceVid, qCanvas);
                 }
             }
         }
