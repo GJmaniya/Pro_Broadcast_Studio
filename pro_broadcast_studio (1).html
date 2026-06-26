@@ -654,7 +654,7 @@
                         
                         parameters.encodings[0].networkPriority = 'high';
                         parameters.encodings[0].priority = 'high';
-                        parameters.degradationPreference = 'maintain-resolution'; // Force absolute clarity, never pixelate
+                        parameters.degradationPreference = 'balanced'; // 'balanced' allows smooth playback without heavy lag or excessive pixelation
                         
                         // Limit resolution and bitrate at the encoder side to ensure lag-free streaming
                         const res = RESOLUTIONS[window.lastSelectedQuality] || RESOLUTIONS[1080];
@@ -674,9 +674,9 @@
                         
                         parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
                         
-                        // Increased Bitrates to prevent blocky artifacts on complex videos (Local/Broadcast quality)
+                        // Balanced Bitrates to prevent both blocky artifacts and network lag
                         if (res.h === 1080) {
-                            parameters.encodings[0].maxBitrate = 25000000; // 25 Mbps for flawless 1080p
+                            parameters.encodings[0].maxBitrate = 12000000; // 12 Mbps sweet spot for pristine 1080p without choking Wi-Fi
                         } else if (res.h === 720) {
                             parameters.encodings[0].maxBitrate = 8000000;  // 8 Mbps
                         } else if (res.h === 480) {
@@ -726,7 +726,7 @@
                         const parameters = sender.getParameters();
                         if (!parameters.encodings) parameters.encodings = [{}];
                         
-                        parameters.degradationPreference = 'maintain-resolution'; // Force absolute clarity, never pixelate
+                        parameters.degradationPreference = 'balanced'; // 'balanced' allows smooth playback
 
                         // Extract real intrinsic height from the DOM element
                         const layerId = call.metadata ? call.metadata.layerId : null;
@@ -743,9 +743,9 @@
                         
                         parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
                         
-                        // Increased Bitrates to prevent blocky artifacts on complex videos (Local/Broadcast quality)
+                        // Balanced Bitrates to prevent both blocky artifacts and network lag
                         if (res.h === 1080) {
-                            parameters.encodings[0].maxBitrate = 25000000; // 25 Mbps
+                            parameters.encodings[0].maxBitrate = 12000000; // 12 Mbps sweet spot
                         } else if (res.h === 720) {
                             parameters.encodings[0].maxBitrate = 8000000;  // 8 Mbps
                         } else if (res.h === 480) {
