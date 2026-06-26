@@ -633,6 +633,103 @@
             }
         };
 
+        // Active media connections list for tracking WebRTC encoders
+        let activeMediaCalls = [];
+        window.lastSelectedQuality = 1080;
+
+        function registerMediaCall(call) {
+            activeMediaCalls.push(call);
+            call.on('close', () => {
+                activeMediaCalls = activeMediaCalls.filter(c => c !== call);
+            });
+            
+            const applyParams = () => {
+                const pc = call.peerConnection;
+                if (!pc) return;
+                
+                pc.getSenders().forEach(sender => {
+                    if (sender.track && sender.track.kind === 'video') {
+                        const parameters = sender.getParameters();
+                        if (!parameters.encodings) parameters.encodings = [{}];
+                        
+                        parameters.encodings[0].networkPriority = 'high';
+                        parameters.encodings[0].priority = 'high';
+                        
+                        // Limit resolution and bitrate at the encoder side to ensure lag-free streaming
+                        const res = RESOLUTIONS[window.lastSelectedQuality] || RESOLUTIONS[1080];
+                        const scale = 1080 / res.h;
+                        parameters.encodings[0].scaleResolutionDownBy = scale;
+                        
+                        if (res.h === 1080) {
+                            parameters.encodings[0].maxBitrate = 4000000;
+                        } else if (res.h === 720) {
+                            parameters.encodings[0].maxBitrate = 2000000;
+                        } else if (res.h === 480) {
+                            parameters.encodings[0].maxBitrate = 1000000;
+                        } else {
+                            parameters.encodings[0].maxBitrate = 300000;
+                        }
+                        
+                        sender.setParameters(parameters).catch(e => {});
+                    }
+                });
+            };
+            
+            const checkPC = setInterval(() => {
+                if (call.peerConnection) {
+                    clearInterval(checkPC);
+                    setTimeout(applyParams, 800);
+                }
+            }, 100);
+            setTimeout(() => clearInterval(checkPC), 8000);
+        }
+
+        window.updateOutgoingStreamsQuality = function(height) {
+            window.lastSelectedQuality = height;
+            const res = RESOLUTIONS[height] || RESOLUTIONS[1080];
+            
+            // 1. Update camera constraints if active
+            Object.keys(window.localStreams).forEach(id => {
+                const stream = window.localStreams[id];
+                stream.getVideoTracks().forEach(track => {
+                    if (track.getConstraints && track.getConstraints().facingMode !== undefined || track.label.toLowerCase().includes('cam')) {
+                        track.applyConstraints({
+                            width: { ideal: res.w },
+                            height: { ideal: res.h }
+                        }).catch(err => console.log("Constraints not applied:", err));
+                    }
+                });
+            });
+
+            // 2. Adjust encoder parameters dynamically on all peer connections
+            activeMediaCalls.forEach(call => {
+                const pc = call.peerConnection;
+                if (!pc) return;
+                
+                pc.getSenders().forEach(sender => {
+                    if (sender.track && sender.track.kind === 'video') {
+                        const parameters = sender.getParameters();
+                        if (!parameters.encodings) parameters.encodings = [{}];
+                        
+                        const scale = 1080 / res.h;
+                        parameters.encodings[0].scaleResolutionDownBy = scale;
+                        
+                        if (res.h === 1080) {
+                            parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps WebRTC limit
+                        } else if (res.h === 720) {
+                            parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps WebRTC limit
+                        } else if (res.h === 480) {
+                            parameters.encodings[0].maxBitrate = 1000000; // 1 Mbps WebRTC limit
+                        } else {
+                            parameters.encodings[0].maxBitrate = 300000;  // 300 Kbps WebRTC limit
+                        }
+                        
+                        sender.setParameters(parameters).catch(err => console.log("RtpSender parameters update skipped:", err));
+                    }
+                });
+            });
+        };
+
         // ==========================================
         // CONTROLLER ENGINE
         // ==========================================
@@ -642,19 +739,10 @@
             setupPropertiesPanelListeners();
             setupDragAndDrop();
 
-            if (peer) {
-                try { peer.destroy(); } catch(e) {}
-            }
-
             peer = new Peer('studio-host-' + currentRoomId, peerConfig);
             
             peer.on('open', (id) => {
                 setP2PStatus('Waiting for Remote Player...', 'text-amber-400');
-            });
-
-            peer.on('disconnected', () => {
-                console.log('Controller peer disconnected from signaling server. Reconnecting...');
-                peer.reconnect();
             });
 
             peer.on('connection', (conn) => {
@@ -666,36 +754,30 @@
 
                     // Send any active camera or streaming file media streams to the newly connected player
                     Object.keys(window.localStreams).forEach(layerId => {
-                        peer.call(conn.peer, window.localStreams[layerId], { metadata: { layerId: layerId } });
+                        const call = peer.call(conn.peer, window.localStreams[layerId], { metadata: { layerId: layerId } });
+                        registerMediaCall(call);
                     });
+                });
+
+                conn.on('data', (msg) => {
+                    if (msg.type === 'QUALITY_CHANGE') {
+                        updateOutgoingStreamsQuality(msg.quality);
+                    }
                 });
 
                 conn.on('close', () => {
                     p2pConnections = p2pConnections.filter(c => c !== conn);
                     if(p2pConnections.length === 0) setP2PStatus('Waiting for Remote Player...', 'text-amber-400');
                 });
-
-                conn.on('error', (err) => {
-                    console.error("Connection error on host:", err);
-                    conn.close();
-                });
             });
 
             peer.on('error', (err) => {
-                console.error("Controller peer error:", err);
+                console.error(err);
                 if (err.type === 'unavailable-id') {
                     setP2PStatus('Controller open elsewhere', 'text-red-500');
                 } else {
                     setP2PStatus('Connection Error', 'text-red-500');
-                    setTimeout(() => {
-                        if (!peer || peer.destroyed) initController();
-                    }, 5000);
                 }
-            });
-
-            // Cleanup when closing tab to instantly release Room ID
-            window.addEventListener('beforeunload', () => {
-                if (peer) peer.destroy();
             });
 
             startMediaSyncLoop();
@@ -824,7 +906,11 @@
 
             // Force 1920x1080 Resolution Capture for Camera
             navigator.mediaDevices.getUserMedia({
-                video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, 
+                video: { 
+                    width: { ideal: 1920 }, 
+                    height: { ideal: 1080 },
+                    frameRate: { ideal: 30, max: 30 }
+                }, 
                 audio: true
             }).then(stream => {
                 const layer = { 
@@ -840,7 +926,8 @@
                 
                 // Establish Media Calls to all connected players
                 p2pConnections.forEach(conn => {
-                    peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
+                    const call = peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
+                    registerMediaCall(call);
                 });
             }).catch(err => {
                 console.error(err);
@@ -938,14 +1025,15 @@
                         const media = el.querySelector('video, audio');
                         if (media) {
                             let stream;
-                            // Ensure high framerate stream capture (60fps ideal for broadcast video)
-                            if (media.captureStream) stream = media.captureStream(60);
-                            else if (media.mozCaptureStream) stream = media.mozCaptureStream(60);
+                            // Omit framerate argument to capture at video's native rate (prevents heavy CPU lag)
+                            if (media.captureStream) stream = media.captureStream();
+                            else if (media.mozCaptureStream) stream = media.mozCaptureStream();
                             
                             if (stream) {
                                 window.localStreams[layer.id] = stream;
                                 p2pConnections.forEach(conn => {
-                                    peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
+                                    const call = peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
+                                    registerMediaCall(call);
                                 });
                             }
                         }
@@ -1474,6 +1562,11 @@
                 // At 1080p: show video directly (no lag). Below 1080p: use canvas pipeline
                 applyQualityModeToAllLayers();
 
+                // Send quality change to host to reduce capture resolution & network bandwidth
+                if (hostConnection && hostConnection.open) {
+                    hostConnection.send({ type: 'QUALITY_CHANGE', quality: height });
+                }
+
                 // Update badge
                 const b = document.getElementById('res-badge');
                 if (b) b.innerText = activeRes.h + 'p';
@@ -1508,56 +1601,39 @@
                 });
             }
 
-            if (peer) {
-                try { peer.destroy(); } catch(e) {}
-            }
-
             peer = new Peer(peerConfig);
-            let reconnectInterval = null;
-
-            function connectToHost() {
-                if (reconnectInterval) clearInterval(reconnectInterval);
-
-                if (hostConnection) {
-                    try { hostConnection.close(); } catch(e) {}
-                    hostConnection = null;
-                }
-
-                console.log("Player connecting to studio-host-" + currentRoomId);
-                
-                const startOverlay = document.getElementById('start-overlay');
-                if (startOverlay && startOverlay.style.display !== 'none') {
-                    startOverlay.innerHTML = `
-                        <div class="p-8 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col items-center gap-4">
-                            <div class="w-16 h-16 bg-amber-600 rounded-full flex items-center justify-center animate-pulse">
-                                <svg class="w-8 h-8 text-white ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                            </div>
-                            <h2 class="text-3xl font-bold text-white mt-4">Connecting to Studio...</h2>
-                            <p class="text-zinc-400 text-center">Make sure the Controller is open and active.<br>Retrying automatically...</p>
-                        </div>
-                    `;
-                }
+            
+            peer.on('open', () => {
+                // Receive incoming Camera Streams & Streamed Files from Host
+                peer.on('call', call => {
+                    call.answer();
+                    call.on('stream', remoteStream => {
+                        const layerId = call.metadata.layerId;
+                        window.remoteStreams = window.remoteStreams || {};
+                        window.remoteStreams[layerId] = remoteStream;
+                        renderPlayerLayer(layerId); 
+                    });
+                });
 
                 hostConnection = peer.connect('studio-host-' + currentRoomId, { reliable: true });
                 
                 hostConnection.on('open', () => {
-                    console.log("Connected to studio host successfully!");
-                    if (reconnectInterval) clearInterval(reconnectInterval);
+                    // Send initial quality to host to optimize stream immediately
+                    hostConnection.send({ type: 'QUALITY_CHANGE', quality: activeRes.h });
 
-                    if (startOverlay) {
-                        startOverlay.innerHTML = `
-                            <div class="p-8 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col items-center gap-4">
-                                <div class="w-16 h-16 bg-emerald-600 rounded-full flex items-center justify-center">
-                                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
-                                </div>
-                                <h2 class="text-3xl font-bold text-white mt-4">Audio/Video Remote Link Active</h2>
-                                <p class="text-zinc-400 text-center">Click anywhere to start rendering.</p>
+                    document.getElementById('start-overlay').innerHTML = `
+                        <div class="p-8 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col items-center gap-4">
+                            <div class="w-16 h-16 bg-emerald-600 rounded-full flex items-center justify-center">
+                                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
                             </div>
-                        `;
-                    }
+                            <h2 class="text-3xl font-bold text-white mt-4">Audio/Video Remote Link Active</h2>
+                            <p class="text-zinc-400 text-center">Click anywhere to start rendering.</p>
+                        </div>
+                    `;
                 });
 
                 hostConnection.on('data', (msg) => {
+                    
                     const processIncomingLayer = (layer) => {
                         if (layer.isBlob && layer.fileBlob) {
                             const blob = new Blob([layer.fileBlob], { type: layer.mimeType });
@@ -1604,6 +1680,7 @@
                             if (el) {
                                 const media = el.querySelector('video, audio');
                                 if (media && msg.data[id]) {
+                                    // Don't auto-correct live camera/file streams as they don't have standard time offsets
                                     if (window.layers[id] && window.layers[id].type !== 'camera' && !window.layers[id].isStreamedMedia) {
                                         if (Math.abs(media.currentTime - msg.data[id].time) > 0.5) {
                                             media.currentTime = msg.data[id].time;
@@ -1616,58 +1693,6 @@
                         });
                     }
                 });
-
-                hostConnection.on('close', () => {
-                    console.log("Studio host connection closed. Reconnecting...");
-                    startReconnectTimer();
-                });
-
-                hostConnection.on('error', (err) => {
-                    console.error("Connection error:", err);
-                    startReconnectTimer();
-                });
-            }
-
-            function startReconnectTimer() {
-                if (reconnectInterval) return;
-                reconnectInterval = setInterval(() => {
-                    connectToHost();
-                }, 3000);
-            }
-
-            peer.on('open', () => {
-                // Receive incoming Camera Streams & Streamed Files from Host
-                peer.on('call', call => {
-                    call.answer();
-                    call.on('stream', remoteStream => {
-                        const layerId = call.metadata.layerId;
-                        window.remoteStreams = window.remoteStreams || {};
-                        window.remoteStreams[layerId] = remoteStream;
-                        renderPlayerLayer(layerId); 
-                    });
-                });
-
-                connectToHost();
-            });
-
-            peer.on('disconnected', () => {
-                console.log("Player peer disconnected from signaling server. Reconnecting peer...");
-                peer.reconnect();
-            });
-
-            peer.on('error', (err) => {
-                console.error("Player peer error:", err);
-                if (err.type === 'peer-unavailable' || err.type === 'connection-failed') {
-                    startReconnectTimer();
-                } else {
-                    setTimeout(() => {
-                        if (!peer || peer.destroyed) initPlayer();
-                    }, 5000);
-                }
-            });
-
-            window.addEventListener('beforeunload', () => {
-                if (peer) peer.destroy();
             });
         }
 
