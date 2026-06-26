@@ -658,21 +658,30 @@
                         // Limit resolution and bitrate at the encoder side to ensure lag-free streaming
                         const res = RESOLUTIONS[window.lastSelectedQuality] || RESOLUTIONS[1080];
                         
-                        // Calculate exact downscale factor based on source resolution to prevent pixelation on 4K sources
+                        // Extract real intrinsic height from the DOM element (track settings are often missing for captureStream)
+                        const layerId = call.metadata ? call.metadata.layerId : null;
+                        let intrinsicHeight = 0;
+                        if (layerId) {
+                            const el = document.getElementById(`ctrl-${layerId}`);
+                            const media = el ? el.querySelector('video') : null;
+                            if (media && media.videoHeight) intrinsicHeight = media.videoHeight;
+                        }
+                        
                         const settings = sender.track.getSettings();
-                        const nativeHeight = settings.height || 1080;
+                        const nativeHeight = intrinsicHeight || settings.height || 1080;
                         const scale = nativeHeight / res.h;
                         
                         parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
                         
+                        // Increased Bitrates to prevent blocky artifacts on complex videos
                         if (res.h === 1080) {
-                            parameters.encodings[0].maxBitrate = 4000000;
+                            parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps for pristine 1080p
                         } else if (res.h === 720) {
-                            parameters.encodings[0].maxBitrate = 2000000;
+                            parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
                         } else if (res.h === 480) {
-                            parameters.encodings[0].maxBitrate = 1000000;
+                            parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
                         } else {
-                            parameters.encodings[0].maxBitrate = 300000;
+                            parameters.encodings[0].maxBitrate = 1000000; // 1 Mbps
                         }
                         
                         sender.setParameters(parameters).catch(e => {});
@@ -716,21 +725,30 @@
                         const parameters = sender.getParameters();
                         if (!parameters.encodings) parameters.encodings = [{}];
                         
-                        // Calculate exact downscale factor based on source resolution to prevent pixelation on 4K sources
+                        // Extract real intrinsic height from the DOM element
+                        const layerId = call.metadata ? call.metadata.layerId : null;
+                        let intrinsicHeight = 0;
+                        if (layerId) {
+                            const el = document.getElementById(`ctrl-${layerId}`);
+                            const media = el ? el.querySelector('video') : null;
+                            if (media && media.videoHeight) intrinsicHeight = media.videoHeight;
+                        }
+                        
                         const settings = sender.track.getSettings();
-                        const nativeHeight = settings.height || 1080;
+                        const nativeHeight = intrinsicHeight || settings.height || 1080;
                         const scale = nativeHeight / res.h;
                         
                         parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
                         
+                        // Increased Bitrates to prevent blocky artifacts on complex videos
                         if (res.h === 1080) {
-                            parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps WebRTC limit
+                            parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps
                         } else if (res.h === 720) {
-                            parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps WebRTC limit
+                            parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
                         } else if (res.h === 480) {
-                            parameters.encodings[0].maxBitrate = 1000000; // 1 Mbps WebRTC limit
+                            parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
                         } else {
-                            parameters.encodings[0].maxBitrate = 300000;  // 300 Kbps WebRTC limit
+                            parameters.encodings[0].maxBitrate = 1000000;  // 1 Mbps
                         }
                         
                         sender.setParameters(parameters).catch(err => console.log("RtpSender parameters update skipped:", err));
