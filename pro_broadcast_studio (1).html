@@ -657,8 +657,13 @@
                         
                         // Limit resolution and bitrate at the encoder side to ensure lag-free streaming
                         const res = RESOLUTIONS[window.lastSelectedQuality] || RESOLUTIONS[1080];
-                        const scale = 1080 / res.h;
-                        parameters.encodings[0].scaleResolutionDownBy = scale;
+                        
+                        // Calculate exact downscale factor based on source resolution to prevent pixelation on 4K sources
+                        const settings = sender.track.getSettings();
+                        const nativeHeight = settings.height || 1080;
+                        const scale = nativeHeight / res.h;
+                        
+                        parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
                         
                         if (res.h === 1080) {
                             parameters.encodings[0].maxBitrate = 4000000;
@@ -711,8 +716,12 @@
                         const parameters = sender.getParameters();
                         if (!parameters.encodings) parameters.encodings = [{}];
                         
-                        const scale = 1080 / res.h;
-                        parameters.encodings[0].scaleResolutionDownBy = scale;
+                        // Calculate exact downscale factor based on source resolution to prevent pixelation on 4K sources
+                        const settings = sender.track.getSettings();
+                        const nativeHeight = settings.height || 1080;
+                        const scale = nativeHeight / res.h;
+                        
+                        parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
                         
                         if (res.h === 1080) {
                             parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps WebRTC limit
