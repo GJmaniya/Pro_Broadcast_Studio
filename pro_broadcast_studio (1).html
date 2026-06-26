@@ -34,6 +34,12 @@
             overflow: hidden;
         }
 
+        /* Video streaming quality: crisp upscaling when resolution is lower than canvas */
+        .low-res-mode video,
+        .low-res-mode img {
+            image-rendering: auto;
+        }
+
         #player-canvas {
             box-shadow: 0 0 100px rgba(0,0,0,0.9);
             background-color: #000;
@@ -1311,7 +1317,7 @@
             document.getElementById('start-overlay').style.display = 'none';
         };
 
-        // Resolution map: height -> { width, height }
+        // Resolution map: height -> { width, height } — controls actual video element size
         const RESOLUTIONS = {
             144:  { w: 256,  h: 144 },
             240:  { w: 426,  h: 240 },
@@ -1330,22 +1336,40 @@
             return RESOLUTIONS[1080];
         }
 
-        // Current active resolution object (mutable for live switching)
+        // Current active resolution — controls video ELEMENT sizes (not the canvas)
         let activeRes = getPlayerResolution();
+
+        // Resize all video/image/iframe elements inside the player to match the active resolution
+        function applyVideoResolutionToAllLayers() {
+            const container = document.getElementById('player-layer-container');
+            if (!container) return;
+            container.querySelectorAll('video, img, iframe').forEach(media => {
+                media.style.width = activeRes.w + 'px';
+                media.style.height = activeRes.h + 'px';
+            });
+            // Add low-res CSS class for crisp rendering when below 1080p
+            const canvas = document.getElementById('player-canvas');
+            if (canvas) {
+                if (activeRes.h < 1080) canvas.classList.add('low-res-mode');
+                else canvas.classList.remove('low-res-mode');
+            }
+        }
 
         function initPlayer() {
             const wrapper = document.getElementById('player-wrapper');
             const canvas = document.getElementById('player-canvas');
 
-            // Apply selected resolution to the canvas
-            canvas.style.width = activeRes.w + 'px';
-            canvas.style.height = activeRes.h + 'px';
+            // Canvas ALWAYS stays at 1920x1080 — the design resolution
+            // Video elements INSIDE are sized to activeRes for real streaming quality
+            canvas.style.width = '1920px';
+            canvas.style.height = '1080px';
 
             function resizeCanvas() {
-                const scale = Math.min(wrapper.clientWidth / activeRes.w, wrapper.clientHeight / activeRes.h);
+                // Scale the 1920x1080 canvas to fit the screen
+                const scale = Math.min(wrapper.clientWidth / 1920, wrapper.clientHeight / 1080);
                 canvas.style.transform = `scale(${scale})`;
-                canvas.style.left = `${(wrapper.clientWidth - (activeRes.w * scale)) / 2}px`;
-                canvas.style.top = `${(wrapper.clientHeight - (activeRes.h * scale)) / 2}px`;
+                canvas.style.left = `${(wrapper.clientWidth - (1920 * scale)) / 2}px`;
+                canvas.style.top = `${(wrapper.clientHeight - (1080 * scale)) / 2}px`;
             }
             window.addEventListener('resize', resizeCanvas);
             resizeCanvas();
@@ -1357,17 +1381,19 @@
             badge.innerText = activeRes.h + 'p';
             document.body.appendChild(badge);
 
+            // Apply initial video resolution to any existing layers
+            applyVideoResolutionToAllLayers();
+
             // Highlight the correct button in the player quality panel
             highlightPlayerQualityBtn(activeRes.h);
 
-            // Live quality switch function
+            // Live quality switch — changes VIDEO ELEMENT sizes, not canvas
             window.switchPlayerQuality = function(height) {
                 if (!RESOLUTIONS[height]) return;
                 activeRes = RESOLUTIONS[height];
 
-                canvas.style.width = activeRes.w + 'px';
-                canvas.style.height = activeRes.h + 'px';
-                resizeCanvas();
+                // Resize all video/image/iframe elements to the new streaming resolution
+                applyVideoResolutionToAllLayers();
 
                 // Update badge
                 const b = document.getElementById('res-badge');
@@ -1518,7 +1544,7 @@
                     vid.loop = true; vid.playsInline = true;
                     if (layer.audio) { vid.volume = layer.audio.volume; vid.muted = layer.audio.muted; }
                     vid.play().catch(e => console.log("Autoplay waiting..."));
-                    vid.style.width = '1920px'; vid.style.height = '1080px';
+                    vid.style.width = activeRes.w + 'px'; vid.style.height = activeRes.h + 'px';
                     vid.draggable = false;
                     el.appendChild(vid);
                 } else if (layer.type === 'audio') {
@@ -1540,20 +1566,20 @@
                     vid.playsInline = true;
                     if (layer.audio) { vid.volume = layer.audio.volume; vid.muted = layer.audio.muted; }
                     vid.play().catch(e => console.log("Autoplay waiting..."));
-                    vid.style.width = '1920px'; vid.style.height = '1080px';
+                    vid.style.width = activeRes.w + 'px'; vid.style.height = activeRes.h + 'px';
                     vid.draggable = false;
                     el.appendChild(vid);
                 } else if (layer.type === 'iframe') {
                     const frame = document.createElement('iframe');
                     frame.src = layer.src; frame.frameBorder = "0";
                     frame.allow = "autoplay; fullscreen";
-                    frame.style.width = '1920px'; frame.style.height = '1080px';
+                    frame.style.width = activeRes.w + 'px'; frame.style.height = activeRes.h + 'px';
                     el.appendChild(frame);
                 } else if (layer.type === 'image') {
                     const img = document.createElement('img');
                     img.src = layer.src;
-                    img.style.width = '1920px';
-                    img.style.height = '1080px';
+                    img.style.width = activeRes.w + 'px';
+                    img.style.height = activeRes.h + 'px';
                     img.style.objectFit = 'contain';
                     img.draggable = false;
                     el.appendChild(img);
