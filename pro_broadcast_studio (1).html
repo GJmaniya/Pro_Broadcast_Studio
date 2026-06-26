@@ -1,0 +1,1604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Broadcast Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #09090b; 
+            color: #f4f4f5; 
+            overflow-x: hidden;
+            margin: 0;
+            padding: 0;
+        }
+
+        .checkerboard {
+            background-color: #18181b;
+            background-image: linear-gradient(45deg, #27272a 25%, transparent 25%, transparent 75%, #27272a 75%, #27272a),
+                              linear-gradient(45deg, #27272a 25%, transparent 25%, transparent 75%, #27272a 75%, #27272a);
+            background-size: 24px 24px;
+            background-position: 0 0, 12px 12px;
+        }
+
+        .fixed-canvas {
+            width: 1920px;
+            height: 1080px;
+            position: absolute;
+            transform-origin: top left;
+            overflow: hidden;
+        }
+
+        #player-canvas {
+            box-shadow: 0 0 100px rgba(0,0,0,0.9);
+            background-color: #000;
+        }
+
+        #player-wrapper {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #000;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #landing-view, #player-view, #controller-view { display: none; }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #18181b; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+
+        .drag-over { border-color: #3b82f6 !important; background-color: rgba(59, 130, 246, 0.1) !important; }
+        .canvas-drag-over { border-color: #3b82f6 !important; box-shadow: inset 0 0 50px rgba(59, 130, 246, 0.5) !important; }
+
+        .layer-element {
+            position: absolute;
+            transform-origin: center center;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            will-change: transform, left, top;
+            /* CRITICAL FIX: Forces element to NEVER squish or shrink when hitting the edge of the canvas */
+            width: max-content;
+            height: max-content;
+            min-width: max-content;
+            min-height: max-content;
+            max-width: 99999px !important;
+            max-height: 99999px !important;
+            white-space: nowrap;
+        }
+
+        /* Prevents Tailwind defaults from compressing elements during drag */
+        .layer-element video, .layer-element img, .layer-element iframe {
+            object-fit: contain;
+            pointer-events: none;
+            max-width: none; 
+            flex-shrink: 0;
+        }
+
+        /* Hide default audio controls in preview canvas to keep it clean */
+        #controller-preview-canvas audio {
+            display: none;
+        }
+
+        #controller-preview-canvas .layer-element {
+            cursor: grab;
+            border: 2px solid transparent;
+            box-sizing: border-box;
+            transition: border-color 0.1s;
+        }
+        
+        #controller-preview-canvas .layer-element:hover { border: 2px dashed rgba(255,255,255,0.5); }
+        #controller-preview-canvas .layer-element.selected {
+            border: 4px solid #3b82f6;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+            z-index: 9999 !important;
+        }
+
+        /* Resize Handles */
+        .resize-handle {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: #ffffff;
+            border: 4px solid #3b82f6;
+            border-radius: 50%;
+            display: none;
+            z-index: 10;
+        }
+        .layer-element.selected .resize-handle { display: block; }
+        .handle-tl { top: -12px; left: -12px; cursor: nwse-resize; }
+        .handle-tr { top: -12px; right: -12px; cursor: nesw-resize; }
+        .handle-bl { bottom: -12px; left: -12px; cursor: nesw-resize; }
+        .handle-br { bottom: -12px; right: -12px; cursor: nwse-resize; }
+
+        /* Smooth Dragging Overrides */
+        body.is-dragging iframe, 
+        body.is-dragging video, 
+        body.is-dragging img {
+            pointer-events: none !important;
+        }
+        body.is-dragging {
+            cursor: grabbing !important;
+        }
+        body.is-dragging .layer-element {
+            cursor: grabbing !important;
+        }
+        body.is-dragging .resize-handle {
+            pointer-events: none !important;
+        }
+
+        .text-layer {
+            white-space: nowrap;
+            color: white;
+            font-weight: bold;
+            text-shadow: 0px 4px 15px rgba(0,0,0,0.8);
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Layer Stack Styles */
+        .layer-stack-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 12px; background: #18181b; border: 1px solid #27272a;
+            border-radius: 6px; margin-bottom: 6px; cursor: pointer; transition: all 0.1s;
+        }
+        .layer-stack-item:hover { background: #27272a; }
+        .layer-stack-item.selected { border-color: #3b82f6; background: #1e1b4b; }
+    </style>
+</head>
+<body class="min-h-screen antialiased selection:bg-blue-500/30">
+
+    <!-- ==========================================
+         LANDING VIEW
+         ========================================== -->
+    <div id="landing-view" class="flex-col items-center justify-center min-h-screen relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-zinc-900 via-black to-zinc-900 -z-10"></div>
+        <div class="absolute top-1/2 left-1/4 w-96 h-96 bg-blue-600/20 rounded-full blur-[120px] -translate-y-1/2 pointer-events-none"></div>
+
+        <div class="z-10 text-center max-w-2xl px-6">
+            <h1 class="text-6xl font-extrabold mb-6 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400">Pro Broadcast System</h1>
+            <p class="text-blue-400 font-bold mb-2 tracking-widest text-sm uppercase">WebRTC Remote Internet Connection</p>
+            <p class="text-zinc-400 mb-6 text-lg leading-relaxed">
+                Connect and stream media from one PC to another over the internet.
+                <br><span class="text-emerald-400 font-medium text-sm">To connect a mobile device, type the PC's Studio ID below before launching the player.</span>
+            </p>
+            
+            <div id="file-protocol-warning" class="hidden bg-rose-900/30 border border-rose-500/50 p-4 rounded-xl max-w-2xl mx-auto mb-6 text-rose-300 text-sm shadow-lg text-left">
+                ⚠️ <strong>Local File Mode Detected:</strong> You are opening this directly from your hard drive. To connect a mobile phone or another PC, you must <strong>copy this exact HTML file</strong> to that device, open it, and enter the Studio ID manually. Links will not work!
+            </div>
+
+            <div class="bg-zinc-900 border border-zinc-800 p-4 rounded-xl max-w-sm mx-auto mb-8 shadow-2xl flex flex-col gap-2">
+                <label class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest text-left">Studio ID (Match this on all devices)</label>
+                <div class="flex gap-2">
+                    <input type="text" id="studio-id-input" class="flex-1 bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-xl text-center tracking-widest font-bold text-white focus:border-blue-500 outline-none" oninput="saveStudioId(this.value)">
+                </div>
+            </div>
+
+            <div class="bg-zinc-900 border border-zinc-800 p-4 rounded-xl max-w-md mx-auto mb-6 shadow-2xl">
+                <label class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest block mb-2">Player Quality / Resolution</label>
+                <div class="flex flex-wrap gap-2 justify-center" id="quality-selector">
+                    <button onclick="selectQuality(this, 144)" data-res="144" class="quality-btn px-4 py-2 rounded-lg text-sm font-semibold border transition-all bg-zinc-950 border-zinc-700 text-zinc-400 hover:border-blue-500 hover:text-white">144p</button>
+                    <button onclick="selectQuality(this, 240)" data-res="240" class="quality-btn px-4 py-2 rounded-lg text-sm font-semibold border transition-all bg-zinc-950 border-zinc-700 text-zinc-400 hover:border-blue-500 hover:text-white">240p</button>
+                    <button onclick="selectQuality(this, 360)" data-res="360" class="quality-btn px-4 py-2 rounded-lg text-sm font-semibold border transition-all bg-zinc-950 border-zinc-700 text-zinc-400 hover:border-blue-500 hover:text-white">360p</button>
+                    <button onclick="selectQuality(this, 480)" data-res="480" class="quality-btn px-4 py-2 rounded-lg text-sm font-semibold border transition-all bg-zinc-950 border-zinc-700 text-zinc-400 hover:border-blue-500 hover:text-white">480p</button>
+                    <button onclick="selectQuality(this, 720)" data-res="720" class="quality-btn px-4 py-2 rounded-lg text-sm font-semibold border transition-all bg-zinc-950 border-zinc-700 text-zinc-400 hover:border-blue-500 hover:text-white">720p</button>
+                    <button onclick="selectQuality(this, 1080)" data-res="1080" class="quality-btn px-4 py-2 rounded-lg text-sm font-semibold border transition-all bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]">1080p</button>
+                </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <button onclick="openPlayer()" class="px-8 py-4 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-3">
+                    🖥️ Launch Player Window
+                </button>
+                <button onclick="openController()" class="px-8 py-4 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-white transition-all shadow-[0_0_40px_rgba(37,99,235,0.4)] flex items-center justify-center gap-3">
+                    🎛️ Open Controller Here
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         PLAYER VIEW
+         ========================================== -->
+    <div id="player-view">
+        <div id="player-wrapper">
+            <div id="start-overlay" class="absolute inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center cursor-pointer transition-opacity duration-500" onclick="startFullscreenPlayer()">
+                <div class="p-8 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col items-center gap-4 hover:scale-105 transition-transform">
+                    <div class="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center animate-pulse">
+                        <svg class="w-8 h-8 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </div>
+                    <h2 class="text-3xl font-bold text-white mt-4">Initialize Remote Player</h2>
+                    <p class="text-zinc-400 text-center">Enters fullscreen, enables unmuted audio,<br>and establishes WebRTC internet tunnel.</p>
+                </div>
+            </div>
+
+            <!-- Floating Quality Settings Panel -->
+            <div id="player-quality-toggle" onclick="togglePlayerQuality()" style="position:fixed; bottom:20px; right:20px; z-index:200; width:48px; height:48px; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); border-radius:12px; display:flex; align-items:center; justify-content:center; cursor:pointer; backdrop-filter:blur(8px); transition:all 0.3s ease;" onmouseenter="this.style.background='rgba(37,99,235,0.5)'" onmouseleave="this.style.background='rgba(0,0,0,0.7)'">
+                <span style="font-size:22px;">⚙️</span>
+            </div>
+
+            <div id="player-quality-panel" style="position:fixed; bottom:80px; right:20px; z-index:200; display:none; background:rgba(9,9,11,0.92); border:1px solid rgba(255,255,255,0.12); border-radius:16px; padding:16px; backdrop-filter:blur(16px); box-shadow:0 20px 50px rgba(0,0,0,0.6); min-width:180px;">
+                <div style="font-size:10px; color:#71717a; font-weight:700; text-transform:uppercase; letter-spacing:2px; margin-bottom:10px; text-align:center;">Quality</div>
+                <div id="player-quality-buttons" style="display:flex; flex-direction:column; gap:6px;">
+                    <button onclick="switchPlayerQuality(144)" data-q="144" class="pq-btn" style="padding:8px 16px; border-radius:8px; border:1px solid #3f3f46; background:#18181b; color:#a1a1aa; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s ease; text-align:left;">144p <span style="float:right; font-size:10px; color:#52525b;">256×144</span></button>
+                    <button onclick="switchPlayerQuality(240)" data-q="240" class="pq-btn" style="padding:8px 16px; border-radius:8px; border:1px solid #3f3f46; background:#18181b; color:#a1a1aa; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s ease; text-align:left;">240p <span style="float:right; font-size:10px; color:#52525b;">426×240</span></button>
+                    <button onclick="switchPlayerQuality(360)" data-q="360" class="pq-btn" style="padding:8px 16px; border-radius:8px; border:1px solid #3f3f46; background:#18181b; color:#a1a1aa; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s ease; text-align:left;">360p <span style="float:right; font-size:10px; color:#52525b;">640×360</span></button>
+                    <button onclick="switchPlayerQuality(480)" data-q="480" class="pq-btn" style="padding:8px 16px; border-radius:8px; border:1px solid #3f3f46; background:#18181b; color:#a1a1aa; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s ease; text-align:left;">480p <span style="float:right; font-size:10px; color:#52525b;">854×480</span></button>
+                    <button onclick="switchPlayerQuality(720)" data-q="720" class="pq-btn" style="padding:8px 16px; border-radius:8px; border:1px solid #3f3f46; background:#18181b; color:#a1a1aa; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s ease; text-align:left;">720p <span style="float:right; font-size:10px; color:#52525b;">1280×720</span></button>
+                    <button onclick="switchPlayerQuality(1080)" data-q="1080" class="pq-btn" style="padding:8px 16px; border-radius:8px; border:1px solid #2563eb; background:#1d4ed8; color:#ffffff; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s ease; text-align:left;">1080p <span style="float:right; font-size:10px; color:#93c5fd;">1920×1080</span></button>
+                </div>
+            </div>
+
+            <div id="player-canvas" class="fixed-canvas checkerboard" style="transform: scale(1);">
+                <div id="player-layer-container" class="absolute inset-0 w-full h-full"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         CONTROLLER VIEW
+         ========================================== -->
+    <div id="controller-view" class="p-4 md:p-6 max-w-[1800px] mx-auto h-screen flex flex-col gap-4">
+        
+        <!-- Header -->
+        <header class="flex justify-between items-center bg-zinc-900 p-4 rounded-xl border border-zinc-800 shrink-0">
+            <div>
+                <h1 class="text-xl font-bold text-zinc-100 flex items-center gap-3">
+                    <svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                    Broadcast Control Deck
+                </h1>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="copyPlayerLink()" class="flex items-center gap-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 border border-blue-600/50 px-3 py-1.5 rounded transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                    <span class="text-xs font-bold uppercase tracking-wider">Copy Remote Player Link</span>
+                </button>
+                <div class="bg-zinc-950 px-3 py-1.5 rounded border border-zinc-800 shadow-inner">
+                    <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mr-2">Link ID:</span>
+                    <span id="display-room-id" class="text-sm font-mono text-emerald-400 tracking-widest font-bold">...</span>
+                </div>
+                <div class="flex items-center gap-3 bg-zinc-950 px-4 py-2 rounded-full border border-zinc-800 shadow-inner">
+                    <span class="relative flex h-3 w-3"><span id="p2p-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span id="p2p-dot" class="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span></span>
+                    <span id="p2p-status" class="text-sm font-semibold text-blue-400 uppercase tracking-widest">Connecting P2P...</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
+            
+            <!-- LEFT COLUMN: Canvas Preview & Timeline Stack -->
+            <div class="lg:col-span-8 flex flex-col gap-4 min-h-0">
+                
+                <!-- Monitor Area -->
+                <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col relative shrink-0">
+                    <div class="flex justify-between items-center mb-3 shrink-0">
+                        <h2 class="text-sm font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                            <span class="w-2 h-2 bg-red-500 rounded-full"></span> Program Monitor
+                        </h2>
+                        <div class="text-xs text-zinc-500 flex gap-4">
+                            <span class="text-blue-400 font-bold">⬇️ Drag & Drop Files Here</span>
+                            <span><kbd class="bg-zinc-800 px-1 rounded">Drag Corner</kbd> Resize</span>
+                            <span><kbd class="bg-zinc-800 px-1 rounded">Drag Center</kbd> Move</span>
+                        </div>
+                    </div>
+                    
+                    <div id="controller-preview-wrapper" class="w-full aspect-video bg-black rounded-lg overflow-hidden relative checkerboard border border-zinc-700 shadow-inner group outline-none transition-all" tabindex="0">
+                        <div id="controller-preview-canvas" class="fixed-canvas z-10">
+                            <!-- Layers dynamically injected here -->
+                        </div>
+                        <div class="absolute inset-0 border-2 border-transparent group-focus:border-blue-500 pointer-events-none transition-colors z-20"></div>
+                    </div>
+                </div>
+
+                <!-- Layer Stack Area -->
+                <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex-1 flex flex-col min-h-[200px] overflow-hidden">
+                    <div class="flex justify-between items-center mb-3 shrink-0 border-b border-zinc-800 pb-2">
+                        <h2 class="text-sm font-bold text-blue-400 uppercase tracking-wider">Layer Stack</h2>
+                        <span class="text-xs text-zinc-500">Top element in list appears on top visually</span>
+                    </div>
+                    <div id="layer-stack-container" class="flex-1 overflow-y-auto pr-2">
+                        <!-- Stack items injected here -->
+                        <div class="text-zinc-600 text-sm text-center mt-6">No layers active</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: Media Hub & Properties -->
+            <div class="lg:col-span-4 flex flex-col gap-4 min-h-0 overflow-y-auto pr-2">
+                
+                <!-- Properties Panel -->
+                <div id="properties-panel" class="bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-lg hidden">
+                    <h2 class="text-sm font-bold text-blue-400 mb-4 uppercase tracking-wider border-b border-zinc-800 pb-2">Layer Properties</h2>
+                    
+                    <div id="prop-text-controls" class="space-y-4 hidden">
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-400 mb-1">Live Text Content</label>
+                            <textarea id="prop-text-val" rows="3" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:border-blue-500 text-white resize-none" placeholder="Type here..."></textarea>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-zinc-400 mb-1">Color</label>
+                                <input type="color" id="prop-text-color" class="w-full h-8 rounded cursor-pointer bg-transparent border-0 p-0">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-zinc-400 mb-1">Font Size</label>
+                                <input type="number" id="prop-text-size" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm" value="120">
+                            </div>
+                        </div>
+                        <div class="h-px bg-zinc-800 w-full my-3"></div>
+                    </div>
+
+                    <!-- Transform Properties -->
+                    <div class="space-y-4 mt-2">
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-400 mb-2">Scale / Zoom (Uniform)</label>
+                            <input type="range" id="prop-scale" min="0.05" max="5" step="0.05" class="w-full accent-blue-500">
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-zinc-400 mb-1">Position X (px)</label>
+                                <input type="number" id="prop-x" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm text-white" value="960">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-zinc-400 mb-1">Position Y (px)</label>
+                                <input type="number" id="prop-y" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm text-white" value="540">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Audio Mixer Properties -->
+                    <div id="prop-audio-controls" class="space-y-4 hidden mt-4">
+                        <h3 class="text-xs font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800 pb-1">Audio Mixer</h3>
+                        <div class="flex items-center gap-4">
+                            <label class="flex items-center gap-2 text-xs text-zinc-300">
+                                <input type="checkbox" id="prop-mute" class="accent-blue-500"> Mute Layer
+                            </label>
+                            <div class="flex-1 flex items-center gap-2">
+                                <span class="text-xs text-zinc-500">Vol</span>
+                                <input type="range" id="prop-volume" min="0" max="1" step="0.05" class="w-full accent-blue-500">
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Media Input Hub -->
+                <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-lg flex-1 flex flex-col gap-5 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
+                    
+                    <h2 class="text-sm font-bold text-zinc-100 uppercase tracking-wider">Add New Layer</h2>
+
+                    <!-- Transfer Mode Selection -->
+                    <div class="bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-3">
+                        <label class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest border-b border-zinc-800 pb-2">Media Transfer Mode</label>
+                        
+                        <div class="flex flex-col gap-2 mb-1">
+                            <label class="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer hover:text-white">
+                                <input type="radio" name="media-mode" value="webrtc" checked class="accent-blue-500" onchange="toggleMediaMode()">
+                                Live Stream File via WebRTC (Instantly beams video/audio)
+                            </label>
+                            <label class="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer hover:text-white">
+                                <input type="radio" name="media-mode" value="path" class="accent-blue-500" onchange="toggleMediaMode()">
+                                Send Remote File Path / Web URL (Good for vMix)
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- WebRTC File Input UI -->
+                    <div id="mode-webrtc-ui">
+                        <div class="bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-2 text-center">
+                            <h3 class="text-sm font-bold text-zinc-200">Local File Stream</h3>
+                            <p class="text-[10px] text-zinc-500 mt-1 mb-2">Drag & Drop Video, Audio, or Images onto the Program Monitor, or browse here.</p>
+                            <button onclick="document.getElementById('file-input').click()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500 text-sm font-semibold">Browse Files</button>
+                            <input type="file" id="file-input" class="hidden" accept="image/*,video/*,audio/*" onchange="handleFileInput(event)">
+                        </div>
+                    </div>
+
+                    <!-- Path Input UI -->
+                    <div id="mode-path-ui" class="hidden bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-2">
+                        <input type="text" id="new-media-val" class="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm focus:border-blue-500 text-white" placeholder="https://... or C:/Videos/loop.mp4">
+                        <div class="flex gap-2">
+                            <select id="new-media-type" class="bg-zinc-900 border border-zinc-700 rounded px-2 py-2 text-sm text-zinc-300 focus:border-blue-500 outline-none">
+                                <option value="auto">Auto-Detect Type</option>
+                                <option value="video">Video</option>
+                                <option value="audio">Audio</option>
+                                <option value="image">Image</option>
+                                <option value="iframe">Web Iframe</option>
+                            </select>
+                            <button onclick="addMediaLayerPath()" class="flex-1 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500 text-sm font-semibold">+ Add Link</button>
+                        </div>
+                    </div>
+
+                    <!-- Camera Input UI -->
+                    <div class="bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-2">
+                        <label class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Live Camera / Mic</label>
+                        <button onclick="addCameraLayer()" class="w-full bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-500 text-sm font-semibold whitespace-nowrap flex items-center justify-center gap-2">
+                            📹 + Add Live Camera / Mic
+                        </button>
+                    </div>
+
+                    <!-- Text Layer -->
+                    <div class="bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-2">
+                        <label class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Text Overlay</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="new-text-val" class="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm focus:border-indigo-500" placeholder="Enter text overlay...">
+                            <button onclick="createNewTextLayer()" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-500 text-sm font-semibold whitespace-nowrap">+ Add Text</button>
+                        </div>
+                    </div>
+
+                    <!-- Global Playback Controls -->
+                    <div class="mt-auto bg-zinc-950 rounded-xl p-3 border border-zinc-800">
+                        <label class="block text-[10px] font-bold text-zinc-500 mb-2 uppercase text-center tracking-widest">Global Commands</label>
+                        <div class="flex gap-2">
+                            <button onclick="sendGlobalCommand('PLAY')" class="flex-1 bg-zinc-800 hover:bg-zinc-700 text-green-400 py-2 rounded text-xs font-bold transition-colors">▶ PLAY</button>
+                            <button onclick="sendGlobalCommand('PAUSE')" class="flex-1 bg-zinc-800 hover:bg-zinc-700 text-amber-400 py-2 rounded text-xs font-bold transition-colors">⏸ PAUSE</button>
+                            <button onclick="sendGlobalCommand('CLEAR_ALL')" class="bg-red-900/40 hover:bg-red-900/80 text-red-400 px-3 py-2 rounded text-xs font-bold transition-colors border border-red-900/50" title="Panic Clear">CLEAR ALL</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // Global State
+        window.layers = {}; 
+        window.selectedLayerId = null;
+        let currentRoomId = '';
+        
+        // P2P State
+        let peer = null;
+        let p2pConnections = [];
+        
+        // Host Media Streams for Live Camera/File Streaming
+        window.localStreams = {};
+        window.remoteStreams = {};
+
+        // PeerJS Config with NAT Traversal (STUN Servers) for Internet Connections
+        const peerConfig = {
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
+            },
+            debug: 2
+        };
+
+        // Persistent Studio ID logic
+        function getStudioId() {
+            let id = localStorage.getItem('broadcast_studio_id');
+            if (!id) {
+                id = Math.floor(10000 + Math.random() * 90000).toString();
+                localStorage.setItem('broadcast_studio_id', id);
+            }
+            return id;
+        }
+
+        window.saveStudioId = function(val) {
+            if(val.trim() !== '') localStorage.setItem('broadcast_studio_id', val.trim());
+        }
+
+        // Routing System
+        window.addEventListener('hashchange', handleRouting);
+        window.addEventListener('load', handleRouting);
+
+        function handleRouting() {
+            const hash = window.location.hash;
+            document.getElementById('landing-view').style.display = 'none';
+            document.getElementById('player-view').style.display = 'none';
+            document.getElementById('controller-view').style.display = 'none';
+
+            // Show warning if running as local file
+            if (window.location.protocol === 'file:') {
+                const warning = document.getElementById('file-protocol-warning');
+                if(warning) warning.style.display = 'block';
+            }
+
+            // Extract room ID from URL if provided, otherwise fallback to local persistent ID
+            if (hash.includes('?room=')) {
+                const parts = hash.split('?room=');
+                currentRoomId = parts[1].split('&')[0];
+            } else {
+                currentRoomId = getStudioId();
+            }
+
+            if (hash.startsWith('#player')) {
+                document.getElementById('player-view').style.display = 'block';
+                initPlayer();
+            } else if (hash.startsWith('#controller')) {
+                document.getElementById('controller-view').style.display = 'flex';
+                document.getElementById('display-room-id').innerText = currentRoomId;
+                initController();
+            } else {
+                document.getElementById('landing-view').style.display = 'flex';
+                document.getElementById('studio-id-input').value = getStudioId();
+            }
+        }
+
+        let selectedQuality = 1080;
+
+        window.selectQuality = function(btn, res) {
+            selectedQuality = res;
+            document.querySelectorAll('.quality-btn').forEach(b => {
+                b.className = 'quality-btn px-4 py-2 rounded-lg text-sm font-semibold border transition-all bg-zinc-950 border-zinc-700 text-zinc-400 hover:border-blue-500 hover:text-white';
+            });
+            btn.className = 'quality-btn px-4 py-2 rounded-lg text-sm font-semibold border transition-all bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]';
+        };
+
+        window.openPlayer = () => window.open(window.location.pathname + '#player?room=' + getStudioId() + '&quality=' + selectedQuality, '_blank');
+        window.openController = () => window.location.hash = '#controller?room=' + getStudioId();
+
+        window.copyPlayerLink = function() {
+            if (window.location.protocol === 'file:') {
+                alert("⚠️ Local File Detected!\n\nYou are running this directly from your hard drive (file://). A web link won't work on another device.\n\nTo connect your mobile phone:\n1. Send this HTML file to your phone.\n2. Open it in your mobile browser.\n3. Manually type your Studio ID: " + currentRoomId);
+                return;
+            }
+
+            const playerUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '#player?room=' + currentRoomId;
+            navigator.clipboard.writeText(playerUrl).then(() => {
+                alert("Player Link copied! Send this link to your remote PC and open it in a browser.");
+            }).catch(err => {
+                // Fallback for older browsers / iframe restrictions
+                const textArea = document.createElement("textarea");
+                textArea.value = playerUrl;
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    alert("Player Link copied! Send this link to your remote PC and open it in a browser.");
+                } catch (err) {
+                    alert("Copy failed. Here is your link:\n" + playerUrl);
+                }
+                document.body.removeChild(textArea);
+            });
+        };
+
+        function setP2PStatus(text, colorClass) {
+            const el = document.getElementById('p2p-status');
+            const dot = document.getElementById('p2p-dot');
+            const ping = document.getElementById('p2p-ping');
+            if(el) {
+                el.innerText = text;
+                el.className = `text-sm font-semibold uppercase tracking-widest ${colorClass}`;
+            }
+            if(dot) {
+                dot.className = `relative inline-flex rounded-full h-3 w-3 ${colorClass.replace('text-', 'bg-')}`;
+                if(ping) ping.style.display = colorClass.includes('emerald') ? 'block' : 'none';
+            }
+        }
+
+        window.toggleMediaMode = function() {
+            const mode = document.querySelector('input[name="media-mode"]:checked').value;
+            if(mode === 'path') {
+                document.getElementById('mode-path-ui').classList.remove('hidden');
+                document.getElementById('mode-webrtc-ui').classList.add('hidden');
+            } else {
+                document.getElementById('mode-path-ui').classList.add('hidden');
+                document.getElementById('mode-webrtc-ui').classList.remove('hidden');
+            }
+        };
+
+        // ==========================================
+        // WEBRTC P2P COMMUNICATION ENGINE
+        // ==========================================
+        
+        function broadcastData(data) {
+            p2pConnections.forEach(conn => {
+                if(conn.open) conn.send(data);
+            });
+        }
+
+        window.sendGlobalCommand = function(cmd) {
+            broadcastData({ type: 'COMMAND', command: cmd });
+            if (cmd === 'CLEAR_ALL') {
+                Object.keys(window.localStreams).forEach(id => {
+                    window.localStreams[id].getTracks().forEach(t => t.stop());
+                });
+                window.layers = {};
+                window.localStreams = {};
+                document.getElementById('controller-preview-canvas').innerHTML = '';
+                broadcastData({ type: 'FULL_SYNC', layers: window.layers });
+                selectLayer(null);
+                renderLayerStack();
+            }
+        };
+
+        // ==========================================
+        // CONTROLLER ENGINE
+        // ==========================================
+        function initController() {
+            setupPreviewScaling();
+            setupInteractiveCanvas();
+            setupPropertiesPanelListeners();
+            setupDragAndDrop();
+
+            peer = new Peer('studio-host-' + currentRoomId, peerConfig);
+            
+            peer.on('open', (id) => {
+                setP2PStatus('Waiting for Remote Player...', 'text-amber-400');
+            });
+
+            peer.on('connection', (conn) => {
+                p2pConnections.push(conn);
+                
+                conn.on('open', () => {
+                    setP2PStatus('Remote Player Connected', 'text-emerald-400');
+                    conn.send({ type: 'FULL_SYNC', layers: window.layers });
+
+                    // Send any active camera or streaming file media streams to the newly connected player
+                    Object.keys(window.localStreams).forEach(layerId => {
+                        peer.call(conn.peer, window.localStreams[layerId], { metadata: { layerId: layerId } });
+                    });
+                });
+
+                conn.on('close', () => {
+                    p2pConnections = p2pConnections.filter(c => c !== conn);
+                    if(p2pConnections.length === 0) setP2PStatus('Waiting for Remote Player...', 'text-amber-400');
+                });
+            });
+
+            peer.on('error', (err) => {
+                console.error(err);
+                if (err.type === 'unavailable-id') {
+                    setP2PStatus('Controller open elsewhere', 'text-red-500');
+                } else {
+                    setP2PStatus('Connection Error', 'text-red-500');
+                }
+            });
+
+            startMediaSyncLoop();
+        }
+
+        function startMediaSyncLoop() {
+            setInterval(() => {
+                if (p2pConnections.length === 0) return;
+                
+                const syncData = {};
+                let hasMedia = false;
+                
+                document.querySelectorAll('#controller-preview-canvas video, #controller-preview-canvas audio').forEach(media => {
+                    const id = media.parentElement.id.replace('ctrl-', '');
+                    syncData[id] = { time: media.currentTime, paused: media.paused };
+                    hasMedia = true;
+                });
+                
+                if (hasMedia) {
+                    broadcastData({ type: 'SYNC_MEDIA', data: syncData });
+                }
+            }, 1000); 
+        }
+
+        function setupPreviewScaling() {
+            const wrapper = document.getElementById('controller-preview-wrapper');
+            const canvas = document.getElementById('controller-preview-canvas');
+            function scale() {
+                const s = Math.min(wrapper.clientWidth / 1920, wrapper.clientHeight / 1080);
+                canvas.style.transform = `scale(${s})`;
+            }
+            window.addEventListener('resize', scale);
+            setTimeout(scale, 100);
+        }
+
+        // --- Layer Stack (Timeline) Rendering ---
+        function renderLayerStack() {
+            const container = document.getElementById('layer-stack-container');
+            if (!container) return;
+            container.innerHTML = '';
+            
+            const sortedLayers = Object.values(window.layers).sort((a, b) => b.zIndex - a.zIndex);
+            
+            if(sortedLayers.length === 0) {
+                container.innerHTML = '<div class="text-zinc-600 text-sm text-center mt-6">No layers active</div>';
+                return;
+            }
+
+            sortedLayers.forEach(layer => {
+                const item = document.createElement('div');
+                const isSelected = window.selectedLayerId === layer.id;
+                item.className = `layer-stack-item ${isSelected ? 'selected' : ''}`;
+                item.onclick = () => selectLayer(layer.id);
+                
+                let name = layer.type.toUpperCase();
+                if(layer.type === 'text') name += `: ${layer.content}`;
+                else if(layer.src) name += `: ${layer.src.split('/').pop().substring(0, 20)}...`;
+                else name += ` Layer`;
+
+                item.innerHTML = `
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <span class="text-[10px] font-mono bg-zinc-800 text-zinc-400 px-2 py-1 rounded shadow-inner">Z: ${layer.zIndex}</span>
+                        <span class="text-xs font-medium text-zinc-200 truncate">${name}</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', 1)" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Up">🔼</button>
+                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', -1)" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Down">🔽</button>
+                        <button onclick="event.stopPropagation(); deleteSpecificLayer('${layer.id}')" class="p-1 text-red-400 hover:bg-red-900/50 rounded ml-2 text-xs" title="Delete">🗑️</button>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // --- Media Input Handling ---
+        window.addMediaLayerPath = function() {
+            let src = document.getElementById('new-media-val').value.trim();
+            if(!src) return;
+
+            let type = document.getElementById('new-media-type').value;
+
+            if (type === 'auto') {
+                const lowerSrc = src.toLowerCase();
+                if (lowerSrc.includes('youtube.com') || lowerSrc.includes('youtu.be') || lowerSrc.includes('vimeo.com')) {
+                    type = 'iframe';
+                } else if (lowerSrc.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/)) {
+                    type = 'image';
+                } else if (lowerSrc.match(/\.(mp3|wav|ogg)(\?.*)?$/)) {
+                    type = 'audio';
+                } else {
+                    type = 'video'; 
+                }
+            }
+            
+            if (type === 'iframe') {
+                if (src.includes('youtube.com') || src.includes('youtu.be')) {
+                    const vidId = src.split('v=')[1]?.split('&')[0] || src.split('youtu.be/')[1]?.split('?')[0];
+                    src = `https://www.youtube.com/embed/${vidId}?autoplay=1&mute=1&controls=0`;
+                } else if (src.includes('vimeo.com')) {
+                    const vidId = src.split('/').pop();
+                    src = `https://player.vimeo.com/video/${vidId}?autoplay=1&muted=1&background=1`;
+                }
+            } else {
+                if (/^[a-zA-Z]:[\\/]/.test(src)) {
+                    src = 'file:///' + src.replace(/\\/g, '/');
+                }
+            }
+
+            const layer = { 
+                id: 'layer_' + Date.now(), type, src, x: 960, y: 540, scale: 1, zIndex: Date.now(),
+                audio: { volume: 1, muted: false }
+            };
+            window.layers[layer.id] = layer;
+            renderControllerLayer(layer.id);
+            renderLayerStack();
+            broadcastData({ type: 'ADD_LAYER', layer: layer });
+            document.getElementById('new-media-val').value = '';
+        };
+
+        window.addCameraLayer = function() {
+            // Check for secure context or localhost before attempting camera access
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert("Camera access requires a secure connection (HTTPS) or Localhost.");
+                return;
+            }
+
+            // Force 1920x1080 Resolution Capture for Camera
+            navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, 
+                audio: true
+            }).then(stream => {
+                const layer = { 
+                    id: 'layer_' + Date.now(), type: 'camera', x: 960, y: 540, scale: 1, zIndex: Date.now(), 
+                    audio: { volume: 1, muted: false } 
+                };
+                window.layers[layer.id] = layer;
+                window.localStreams[layer.id] = stream;
+                
+                renderControllerLayer(layer.id);
+                renderLayerStack();
+                broadcastData({ type: 'ADD_LAYER', layer: layer });
+                
+                // Establish Media Calls to all connected players
+                p2pConnections.forEach(conn => {
+                    peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
+                });
+            }).catch(err => {
+                console.error(err);
+                alert("Camera access denied or unavailable.");
+            });
+        };
+
+        window.createNewTextLayer = function() {
+            const val = document.getElementById('new-text-val').value || 'LIVE TEXT';
+            const layer = { 
+                id: 'layer_' + Date.now(), type: 'text', content: val, x: 960, y: 540, scale: 1, zIndex: Date.now(),
+                styles: { color: '#ffffff', fontSize: 120 } 
+            };
+            window.layers[layer.id] = layer;
+            renderControllerLayer(layer.id);
+            renderLayerStack();
+            broadcastData({ type: 'ADD_LAYER', layer: layer });
+            document.getElementById('new-text-val').value = '';
+        };
+
+        function setupDragAndDrop() {
+            const monitor = document.getElementById('controller-preview-wrapper');
+            
+            monitor.addEventListener('dragover', (e) => { 
+                e.preventDefault(); 
+                monitor.classList.add('canvas-drag-over'); 
+            });
+            
+            monitor.addEventListener('dragleave', () => { 
+                monitor.classList.remove('canvas-drag-over'); 
+            });
+            
+            monitor.addEventListener('drop', (e) => {
+                e.preventDefault();
+                monitor.classList.remove('canvas-drag-over');
+                if(e.dataTransfer.files.length) {
+                    // Calculate exact drop position
+                    const canvas = document.getElementById('controller-preview-canvas');
+                    const rect = canvas.getBoundingClientRect();
+                    const scale = rect.width / 1920;
+                    
+                    let dropX = (e.clientX - rect.left) / scale;
+                    let dropY = (e.clientY - rect.top) / scale;
+                    
+                    // Clamp to canvas bounds
+                    dropX = Math.max(0, Math.min(1920, dropX));
+                    dropY = Math.max(0, Math.min(1080, dropY));
+
+                    processLocalFileBlob(e.dataTransfer.files[0], dropX, dropY);
+                }
+            });
+
+            window.handleFileInput = (e) => {
+                if(e.target.files.length) processLocalFileBlob(e.target.files[0], 960, 540);
+                e.target.value = '';
+            };
+        }
+
+        // Handles dragged local files. Streams Video/Audio via WebRTC, sends Images as Blobs.
+        function processLocalFileBlob(file, x = 960, y = 540) {
+            let type = 'image';
+            if (file.type.startsWith('video/')) type = 'video';
+            if (file.type.startsWith('audio/')) type = 'audio';
+
+            const layer = {
+                id: 'layer_' + Date.now(), 
+                type: type, 
+                x: x, y: y, scale: 1, zIndex: Date.now(),
+                audio: { volume: 1, muted: false }
+            };
+
+            if (type === 'image') {
+                layer.isBlob = true;
+                layer.mimeType = file.type;
+                layer.fileBlob = file; 
+                layer.src = URL.createObjectURL(file);
+                window.layers[layer.id] = layer;
+                
+                renderControllerLayer(layer.id);
+                renderLayerStack();
+                broadcastData({ type: 'ADD_LAYER', layer: layer });
+            } else {
+                // LIVE STREAMING MODE FOR LOCAL VIDEO & AUDIO
+                layer.isStreamedMedia = true;
+                layer.src = URL.createObjectURL(file);
+                window.layers[layer.id] = layer;
+                
+                renderControllerLayer(layer.id);
+                renderLayerStack();
+
+                // Wait briefly for the HTML element to render so we can capture its stream
+                setTimeout(() => {
+                    const el = document.getElementById(`ctrl-${layer.id}`);
+                    if (el) {
+                        const media = el.querySelector('video, audio');
+                        if (media) {
+                            let stream;
+                            // Ensure high framerate stream capture (60fps ideal for broadcast video)
+                            if (media.captureStream) stream = media.captureStream(60);
+                            else if (media.mozCaptureStream) stream = media.mozCaptureStream(60);
+                            
+                            if (stream) {
+                                window.localStreams[layer.id] = stream;
+                                p2pConnections.forEach(conn => {
+                                    peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
+                                });
+                            }
+                        }
+                    }
+                    
+                    // Broadcast layer instruction to remote player (without the local URL)
+                    const remoteLayer = { ...layer };
+                    delete remoteLayer.src; 
+                    broadcastData({ type: 'ADD_LAYER', layer: remoteLayer });
+                }, 500);
+            }
+        }
+
+        // --- Rendering Controller View ---
+        function renderControllerLayer(id) {
+            const layer = window.layers[id];
+            if (!layer) return;
+
+            const canvas = document.getElementById('controller-preview-canvas');
+            let el = document.getElementById(`ctrl-${id}`);
+            
+            if (!el) {
+                el = document.createElement('div');
+                el.id = `ctrl-${id}`;
+                el.className = 'layer-element';
+
+                // Add 4 Corner Resize Handles
+                const handles = ['tl', 'tr', 'bl', 'br'];
+                handles.forEach(pos => {
+                    const handle = document.createElement('div');
+                    handle.className = `resize-handle handle-${pos}`;
+                    handle.onmousedown = (e) => startCornerResize(e, id, pos);
+                    el.appendChild(handle);
+                });
+
+                canvas.appendChild(el);
+
+                if (layer.type === 'video') {
+                    const vid = document.createElement('video');
+                    vid.src = layer.src; vid.muted = true; // Kept muted in preview to prevent echo
+                    vid.loop = true; vid.play().catch(e=>e);
+                    vid.style.width = '1920px'; vid.style.height = '1080px';
+                    vid.draggable = false;
+                    el.appendChild(vid);
+                } else if (layer.type === 'audio') {
+                    const aud = document.createElement('audio');
+                    aud.src = layer.src; aud.muted = true; // Kept muted in preview
+                    aud.loop = true; aud.play().catch(e=>e);
+                    el.appendChild(aud); 
+                    el.innerHTML += `<div class="bg-blue-600/80 p-8 rounded-full shadow-lg border-2 border-blue-400 text-white font-bold tracking-widest text-4xl pointer-events-none select-none">🎵 AUDIO SOURCE</div>`;
+                } else if (layer.type === 'camera') {
+                    const vid = document.createElement('video');
+                    if (window.localStreams[id]) vid.srcObject = window.localStreams[id];
+                    vid.muted = true; // Always mute local camera in controller
+                    vid.playsInline = true; vid.play().catch(e=>e);
+                    vid.style.width = '1920px'; vid.style.height = '1080px';
+                    vid.draggable = false;
+                    el.appendChild(vid);
+                } else if (layer.type === 'iframe') {
+                    const frame = document.createElement('iframe');
+                    frame.src = layer.src; frame.frameBorder = "0";
+                    frame.style.width = '1920px'; frame.style.height = '1080px';
+                    el.appendChild(frame);
+                } else if (layer.type === 'image') {
+                    const img = document.createElement('img');
+                    img.src = layer.src;
+                    img.style.width = '1920px';
+                    img.style.height = '1080px';
+                    img.style.objectFit = 'contain';
+                    img.draggable = false;
+                    el.appendChild(img);
+                } else if (layer.type === 'text') {
+                    const txt = document.createElement('div');
+                    txt.className = 'text-layer';
+                    el.appendChild(txt);
+                }
+
+                // Middle Drag handler
+                el.addEventListener('mousedown', (e) => {
+                    // Prevent trigger if a resize handle was clicked
+                    if (e.target.classList.contains('resize-handle')) return;
+                    selectLayer(id);
+                    startDrag(e, id);
+                });
+            }
+
+            // Sync visual attributes
+            el.style.left = `${layer.x}px`;
+            el.style.top = `${layer.y}px`;
+            el.style.transform = `translate(-50%, -50%) scale(${layer.scale})`;
+            el.style.zIndex = layer.zIndex;
+
+            if (layer.type === 'text') {
+                const txtNode = el.querySelector('.text-layer');
+                if(txtNode) {
+                    txtNode.innerText = layer.content;
+                    if (layer.styles) {
+                        txtNode.style.color = layer.styles.color;
+                        txtNode.style.fontSize = `${layer.styles.fontSize}px`;
+                    }
+                }
+            }
+
+            // Mute logic for preview monitor (always mute everything to avoid doubling with the remote player)
+            const mediaNode = el.querySelector('video, audio');
+            if (mediaNode) {
+                mediaNode.muted = true;
+            }
+
+            if (window.selectedLayerId === id) {
+                el.classList.add('selected');
+                document.getElementById('prop-scale').value = layer.scale.toFixed(2);
+                document.getElementById('prop-x').value = Math.round(layer.x);
+                document.getElementById('prop-y').value = Math.round(layer.y);
+            } else {
+                el.classList.remove('selected');
+            }
+        }
+
+        // --- Selection & Interactivity ---
+        window.selectLayer = function(id) {
+            if (window.selectedLayerId && document.getElementById(`ctrl-${window.selectedLayerId}`)) {
+                document.getElementById(`ctrl-${window.selectedLayerId}`).classList.remove('selected');
+            }
+            
+            window.selectedLayerId = id;
+            
+            if (id && window.layers[id]) {
+                const layer = window.layers[id];
+                document.getElementById(`ctrl-${id}`).classList.add('selected');
+                document.getElementById('properties-panel').classList.remove('hidden');
+                document.getElementById('prop-scale').value = layer.scale.toFixed(2);
+                document.getElementById('prop-x').value = Math.round(layer.x);
+                document.getElementById('prop-y').value = Math.round(layer.y);
+
+                if (layer.type === 'text') {
+                    document.getElementById('prop-text-controls').classList.remove('hidden');
+                    document.getElementById('prop-text-val').value = layer.content;
+                    if(layer.styles) {
+                        document.getElementById('prop-text-color').value = layer.styles.color;
+                        document.getElementById('prop-text-size').value = layer.styles.fontSize;
+                    }
+                } else {
+                    document.getElementById('prop-text-controls').classList.add('hidden');
+                }
+
+                if (['video', 'audio', 'camera'].includes(layer.type)) {
+                    document.getElementById('prop-audio-controls').classList.remove('hidden');
+                    document.getElementById('prop-mute').checked = layer.audio ? layer.audio.muted : false;
+                    document.getElementById('prop-volume').value = layer.audio ? layer.audio.volume : 1;
+                } else {
+                    document.getElementById('prop-audio-controls').classList.add('hidden');
+                }
+            } else {
+                document.getElementById('properties-panel').classList.add('hidden');
+            }
+            
+            renderLayerStack(); // Update highlights in the stack
+        };
+
+        function setupPropertiesPanelListeners() {
+            const updateProps = (changes) => {
+                if(!window.selectedLayerId) return;
+                Object.assign(window.layers[window.selectedLayerId], changes);
+                renderControllerLayer(window.selectedLayerId);
+                broadcastData({ type: 'UPDATE_LAYER', id: window.selectedLayerId, changes: changes });
+            };
+
+            document.getElementById('prop-scale').addEventListener('input', (e) => updateProps({ scale: parseFloat(e.target.value) }));
+            document.getElementById('prop-x').addEventListener('input', (e) => updateProps({ x: parseInt(e.target.value) || 0 }));
+            document.getElementById('prop-y').addEventListener('input', (e) => updateProps({ y: parseInt(e.target.value) || 0 }));
+            
+            document.getElementById('prop-text-val').addEventListener('input', (e) => {
+                updateProps({ content: e.target.value });
+                renderLayerStack();
+            });
+            document.getElementById('prop-text-color').addEventListener('input', (e) => {
+                const s = window.layers[window.selectedLayerId].styles;
+                updateProps({ styles: { ...s, color: e.target.value } });
+            });
+            document.getElementById('prop-text-size').addEventListener('input', (e) => {
+                const s = window.layers[window.selectedLayerId].styles;
+                updateProps({ styles: { ...s, fontSize: parseInt(e.target.value) || 10 } });
+            });
+
+            // Audio Mixer Listeners
+            document.getElementById('prop-mute').addEventListener('change', (e) => {
+                const a = window.layers[window.selectedLayerId].audio || {volume: 1};
+                updateProps({ audio: { ...a, muted: e.target.checked } });
+            });
+            document.getElementById('prop-volume').addEventListener('input', (e) => {
+                const a = window.layers[window.selectedLayerId].audio || {muted: false};
+                updateProps({ audio: { ...a, volume: parseFloat(e.target.value) } });
+            });
+        }
+
+        // --- Advanced Dragging & Zooming Engine ---
+        let dragMode = null; // 'move' or 'resize'
+        let activeCorner = null;
+        let dragStartX, dragStartY, initialX, initialY, initialScale;
+        let baseW = 1920, baseH = 1080;
+        let anchorX = 0, anchorY = 0, initialCornerX = 0, initialCornerY = 0;
+        let lastSyncTime = 0;
+
+        function startDrag(e, id) {
+            dragMode = 'move';
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            initialX = window.layers[id].x;
+            initialY = window.layers[id].y;
+            document.body.classList.add('is-dragging');
+            document.getElementById('controller-preview-wrapper').focus();
+            e.preventDefault();
+        }
+
+        function startCornerResize(e, id, corner) {
+            dragMode = 'resize';
+            activeCorner = corner;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            initialScale = window.layers[id].scale;
+            initialX = window.layers[id].x;
+            initialY = window.layers[id].y;
+            
+            const el = document.getElementById(`ctrl-${id}`);
+            if (el) {
+                baseW = el.offsetWidth || 1920;
+                baseH = el.offsetHeight || 1080;
+            }
+            
+            // Calculate anchor point geometry to keep resizing completely stable
+            if (corner === 'br') {
+                anchorX = initialX - (baseW * initialScale) / 2;
+                anchorY = initialY - (baseH * initialScale) / 2;
+                initialCornerX = initialX + (baseW * initialScale) / 2;
+                initialCornerY = initialY + (baseH * initialScale) / 2;
+            } else if (corner === 'tl') {
+                anchorX = initialX + (baseW * initialScale) / 2;
+                anchorY = initialY + (baseH * initialScale) / 2;
+                initialCornerX = initialX - (baseW * initialScale) / 2;
+                initialCornerY = initialY - (baseH * initialScale) / 2;
+            } else if (corner === 'tr') {
+                anchorX = initialX - (baseW * initialScale) / 2;
+                anchorY = initialY + (baseH * initialScale) / 2;
+                initialCornerX = initialX + (baseW * initialScale) / 2;
+                initialCornerY = initialY - (baseH * initialScale) / 2;
+            } else if (corner === 'bl') {
+                anchorX = initialX + (baseW * initialScale) / 2;
+                anchorY = initialY - (baseH * initialScale) / 2;
+                initialCornerX = initialX - (baseW * initialScale) / 2;
+                initialCornerY = initialY + (baseH * initialScale) / 2;
+            }
+
+            document.body.classList.add('is-dragging');
+            selectLayer(id);
+            document.getElementById('controller-preview-wrapper').focus();
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        function setupInteractiveCanvas() {
+            const wrapper = document.getElementById('controller-preview-wrapper');
+
+            // Allow deselection by clicking canvas background
+            wrapper.addEventListener('mousedown', (e) => {
+                if(e.target.id === 'controller-preview-wrapper' || e.target.id === 'controller-preview-canvas') {
+                    selectLayer(null);
+                }
+            });
+
+            // 1. Click & Drag (Move or Resize)
+            window.addEventListener('mousemove', (e) => {
+                if (!dragMode || !window.selectedLayerId) return;
+                
+                const canvas = document.getElementById('controller-preview-canvas');
+                const scaleFactor = canvas.getBoundingClientRect().width / 1920;
+                const layer = window.layers[window.selectedLayerId];
+                let changes = {};
+
+                if (dragMode === 'move') {
+                    layer.x = initialX + (e.clientX - dragStartX) / scaleFactor;
+                    layer.y = initialY + (e.clientY - dragStartY) / scaleFactor;
+                    changes = { x: layer.x, y: layer.y };
+                } 
+                else if (dragMode === 'resize') {
+                    const dx = (e.clientX - dragStartX) / scaleFactor;
+                    const dy = (e.clientY - dragStartY) / scaleFactor;
+                    
+                    const newCornerX = initialCornerX + dx;
+                    const newCornerY = initialCornerY + dy;
+                    
+                    const initDist = Math.hypot(initialCornerX - anchorX, initialCornerY - anchorY);
+                    const newDist = Math.hypot(newCornerX - anchorX, newCornerY - anchorY);
+                    
+                    // Prevent inversion scaling by checking the dot product of vectors
+                    const dotProduct = (newCornerX - anchorX) * (initialCornerX - anchorX) + (newCornerY - anchorY) * (initialCornerY - anchorY);
+                    const scaleRatio = dotProduct < 0 ? 0.05 : newDist / initDist;
+                    
+                    layer.scale = Math.max(0.05, initialScale * scaleRatio);
+                    
+                    // Calculate center to keep the opposite corner fully anchored
+                    const newScaledCornerX = anchorX + (initialCornerX - anchorX) * (layer.scale / initialScale);
+                    const newScaledCornerY = anchorY + (initialCornerY - anchorY) * (layer.scale / initialScale);
+                    
+                    layer.x = (anchorX + newScaledCornerX) / 2;
+                    layer.y = (anchorY + newScaledCornerY) / 2;
+                    
+                    changes = { scale: layer.scale, x: layer.x, y: layer.y };
+                }
+                
+                renderControllerLayer(window.selectedLayerId);
+                
+                // Throttle P2P updates to ~30fps while dragging for buttery smooth feedback
+                if (Date.now() - lastSyncTime > 33) {
+                    broadcastData({ type: 'UPDATE_LAYER', id: layer.id, changes: changes });
+                    lastSyncTime = Date.now();
+                }
+            });
+
+            window.addEventListener('mouseup', () => { 
+                if(dragMode && window.selectedLayerId) {
+                    const layer = window.layers[window.selectedLayerId];
+                    broadcastData({ type: 'UPDATE_LAYER', id: layer.id, changes: { x: layer.x, y: layer.y, scale: layer.scale } });
+                }
+                dragMode = null; 
+                document.body.classList.remove('is-dragging');
+            });
+
+            // 2. Keyboard Arrow & Plus/Minus support
+            wrapper.addEventListener('keydown', (e) => {
+                if (!window.selectedLayerId) return;
+                const layer = window.layers[window.selectedLayerId];
+                const step = e.shiftKey ? 50 : 5;
+                const scaleStep = e.shiftKey ? 0.1 : 0.02;
+                let changed = false;
+
+                switch(e.key) {
+                    case 'ArrowLeft': layer.x -= step; changed = true; break;
+                    case 'ArrowRight': layer.x += step; changed = true; break;
+                    case 'ArrowUp': layer.y -= step; changed = true; break;
+                    case 'ArrowDown': layer.y += step; changed = true; break;
+                    case '=': case '+': layer.scale += scaleStep; changed = true; break;
+                    case '-': case '_': layer.scale = Math.max(0.05, layer.scale - scaleStep); changed = true; break;
+                    case 'Delete': case 'Backspace': window.deleteSelectedLayer(); return;
+                }
+                
+                if (changed) {
+                    e.preventDefault();
+                    renderControllerLayer(window.selectedLayerId);
+                    broadcastData({ type: 'UPDATE_LAYER', id: layer.id, changes: { x: layer.x, y: layer.y, scale: layer.scale } });
+                }
+            });
+        }
+
+        // --- Z-Index and Deletion Methods ---
+        window.changeLayerZSpecific = function(id, delta) {
+            if(!window.layers[id]) return;
+            const newZ = window.layers[id].zIndex + delta;
+            window.layers[id].zIndex = newZ;
+            renderControllerLayer(id);
+            renderLayerStack();
+            broadcastData({ type: 'UPDATE_LAYER', id: id, changes: { zIndex: newZ } });
+        };
+        
+        window.changeLayerZ = function(delta) {
+            if(!window.selectedLayerId) return;
+            window.changeLayerZSpecific(window.selectedLayerId, delta);
+        };
+
+        window.deleteSpecificLayer = function(id) {
+            const el = document.getElementById(`ctrl-${id}`);
+            if (el) el.remove();
+
+            if (window.localStreams[id]) {
+                window.localStreams[id].getTracks().forEach(t => t.stop());
+                delete window.localStreams[id];
+            }
+
+            delete window.layers[id];
+            broadcastData({ type: 'REMOVE_LAYER', id: id });
+            
+            if(window.selectedLayerId === id) selectLayer(null);
+            else renderLayerStack();
+        };
+
+        window.deleteSelectedLayer = function() {
+            if(!window.selectedLayerId) return;
+            window.deleteSpecificLayer(window.selectedLayerId);
+        };
+
+
+        // ==========================================
+        // PLAYER ENGINE (Receiver)
+        // ==========================================
+        window.startFullscreenPlayer = function() {
+            const playerElem = document.documentElement;
+            if (playerElem.requestFullscreen) playerElem.requestFullscreen();
+            document.getElementById('start-overlay').style.display = 'none';
+        };
+
+        // Resolution map: height -> { width, height }
+        const RESOLUTIONS = {
+            144:  { w: 256,  h: 144 },
+            240:  { w: 426,  h: 240 },
+            360:  { w: 640,  h: 360 },
+            480:  { w: 854,  h: 480 },
+            720:  { w: 1280, h: 720 },
+            1080: { w: 1920, h: 1080 }
+        };
+
+        function getPlayerResolution() {
+            const hash = window.location.hash;
+            const match = hash.match(/quality=(\d+)/);
+            if (match && RESOLUTIONS[parseInt(match[1])]) {
+                return RESOLUTIONS[parseInt(match[1])];
+            }
+            return RESOLUTIONS[1080];
+        }
+
+        // Current active resolution object (mutable for live switching)
+        let activeRes = getPlayerResolution();
+
+        function initPlayer() {
+            const wrapper = document.getElementById('player-wrapper');
+            const canvas = document.getElementById('player-canvas');
+
+            // Apply selected resolution to the canvas
+            canvas.style.width = activeRes.w + 'px';
+            canvas.style.height = activeRes.h + 'px';
+
+            function resizeCanvas() {
+                const scale = Math.min(wrapper.clientWidth / activeRes.w, wrapper.clientHeight / activeRes.h);
+                canvas.style.transform = `scale(${scale})`;
+                canvas.style.left = `${(wrapper.clientWidth - (activeRes.w * scale)) / 2}px`;
+                canvas.style.top = `${(wrapper.clientHeight - (activeRes.h * scale)) / 2}px`;
+            }
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+
+            // Show current resolution badge
+            const badge = document.createElement('div');
+            badge.id = 'res-badge';
+            badge.style.cssText = 'position:fixed; top:16px; right:16px; z-index:201; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:12px; font-weight:700; padding:6px 14px; border-radius:8px; backdrop-filter:blur(8px);';
+            badge.innerText = activeRes.h + 'p';
+            document.body.appendChild(badge);
+
+            // Highlight the correct button in the player quality panel
+            highlightPlayerQualityBtn(activeRes.h);
+
+            // Live quality switch function
+            window.switchPlayerQuality = function(height) {
+                if (!RESOLUTIONS[height]) return;
+                activeRes = RESOLUTIONS[height];
+
+                canvas.style.width = activeRes.w + 'px';
+                canvas.style.height = activeRes.h + 'px';
+                resizeCanvas();
+
+                // Update badge
+                const b = document.getElementById('res-badge');
+                if (b) b.innerText = activeRes.h + 'p';
+
+                highlightPlayerQualityBtn(height);
+
+                // Auto-close panel after selection
+                const panel = document.getElementById('player-quality-panel');
+                if (panel) panel.style.display = 'none';
+            };
+
+            // Toggle quality panel
+            window.togglePlayerQuality = function() {
+                const panel = document.getElementById('player-quality-panel');
+                if (panel) {
+                    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+                }
+            };
+
+            function highlightPlayerQualityBtn(activeHeight) {
+                document.querySelectorAll('.pq-btn').forEach(btn => {
+                    const q = parseInt(btn.getAttribute('data-q'));
+                    if (q === activeHeight) {
+                        btn.style.background = '#1d4ed8';
+                        btn.style.borderColor = '#2563eb';
+                        btn.style.color = '#ffffff';
+                    } else {
+                        btn.style.background = '#18181b';
+                        btn.style.borderColor = '#3f3f46';
+                        btn.style.color = '#a1a1aa';
+                    }
+                });
+            }
+
+            peer = new Peer(peerConfig);
+            
+            peer.on('open', () => {
+                // Receive incoming Camera Streams & Streamed Files from Host
+                peer.on('call', call => {
+                    call.answer();
+                    call.on('stream', remoteStream => {
+                        const layerId = call.metadata.layerId;
+                        window.remoteStreams = window.remoteStreams || {};
+                        window.remoteStreams[layerId] = remoteStream;
+                        renderPlayerLayer(layerId); 
+                    });
+                });
+
+                hostConnection = peer.connect('studio-host-' + currentRoomId, { reliable: true });
+                
+                hostConnection.on('open', () => {
+                    document.getElementById('start-overlay').innerHTML = `
+                        <div class="p-8 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col items-center gap-4">
+                            <div class="w-16 h-16 bg-emerald-600 rounded-full flex items-center justify-center">
+                                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                            </div>
+                            <h2 class="text-3xl font-bold text-white mt-4">Audio/Video Remote Link Active</h2>
+                            <p class="text-zinc-400 text-center">Click anywhere to start rendering.</p>
+                        </div>
+                    `;
+                });
+
+                hostConnection.on('data', (msg) => {
+                    
+                    const processIncomingLayer = (layer) => {
+                        if (layer.isBlob && layer.fileBlob) {
+                            const blob = new Blob([layer.fileBlob], { type: layer.mimeType });
+                            layer.src = URL.createObjectURL(blob);
+                            delete layer.fileBlob; 
+                        }
+                        return layer;
+                    };
+
+                    if (msg.type === 'FULL_SYNC') {
+                        Object.keys(window.layers).forEach(id => {
+                            if (!msg.layers[id]) removePlayerLayerDOM(id);
+                        });
+                        window.layers = msg.layers;
+                        Object.keys(window.layers).forEach(id => {
+                            window.layers[id] = processIncomingLayer(window.layers[id]);
+                            renderPlayerLayer(id);
+                        });
+                    }
+                    else if (msg.type === 'ADD_LAYER') {
+                        window.layers[msg.layer.id] = processIncomingLayer(msg.layer);
+                        renderPlayerLayer(msg.layer.id);
+                    }
+                    else if (msg.type === 'UPDATE_LAYER') {
+                        if(window.layers[msg.id]) {
+                            Object.assign(window.layers[msg.id], msg.changes);
+                            renderPlayerLayer(msg.id);
+                        }
+                    }
+                    else if (msg.type === 'REMOVE_LAYER') {
+                        removePlayerLayerDOM(msg.id);
+                        delete window.layers[msg.id];
+                    }
+                    else if (msg.type === 'COMMAND') {
+                        if (msg.command === 'PLAY') {
+                            document.querySelectorAll('#player-layer-container video, #player-layer-container audio').forEach(v => v.play().catch(e=>e));
+                        } else if (msg.command === 'PAUSE') {
+                            document.querySelectorAll('#player-layer-container video, #player-layer-container audio').forEach(v => v.pause());
+                        }
+                    }
+                    else if (msg.type === 'SYNC_MEDIA') {
+                        Object.keys(msg.data).forEach(id => {
+                            const el = document.getElementById(`play-${id}`);
+                            if (el) {
+                                const media = el.querySelector('video, audio');
+                                if (media && msg.data[id]) {
+                                    // Don't auto-correct live camera/file streams as they don't have standard time offsets
+                                    if (window.layers[id] && window.layers[id].type !== 'camera' && !window.layers[id].isStreamedMedia) {
+                                        if (Math.abs(media.currentTime - msg.data[id].time) > 0.5) {
+                                            media.currentTime = msg.data[id].time;
+                                        }
+                                        if (msg.data[id].paused && !media.paused) media.pause();
+                                        if (!msg.data[id].paused && media.paused) media.play().catch(e=>e);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+        }
+
+        function renderPlayerLayer(id) {
+            const layer = window.layers[id];
+            if (!layer) return;
+            const container = document.getElementById('player-layer-container');
+            
+            let el = document.getElementById(`play-${id}`);
+            if (!el) {
+                // Creation Block
+                el = document.createElement('div');
+                el.id = `play-${id}`;
+                el.className = 'layer-element';
+                container.appendChild(el);
+
+                if (layer.type === 'video') {
+                    const vid = document.createElement('video');
+                    if (layer.isStreamedMedia) {
+                        if (window.remoteStreams && window.remoteStreams[id]) vid.srcObject = window.remoteStreams[id];
+                    } else {
+                        vid.src = layer.src; 
+                    }
+                    vid.loop = true; vid.playsInline = true;
+                    if (layer.audio) { vid.volume = layer.audio.volume; vid.muted = layer.audio.muted; }
+                    vid.play().catch(e => console.log("Autoplay waiting..."));
+                    vid.style.width = '1920px'; vid.style.height = '1080px';
+                    vid.draggable = false;
+                    el.appendChild(vid);
+                } else if (layer.type === 'audio') {
+                    const aud = document.createElement('audio');
+                    if (layer.isStreamedMedia) {
+                        if (window.remoteStreams && window.remoteStreams[id]) aud.srcObject = window.remoteStreams[id];
+                    } else {
+                        aud.src = layer.src; 
+                    }
+                    aud.loop = true; 
+                    if (layer.audio) { aud.volume = layer.audio.volume; aud.muted = layer.audio.muted; }
+                    aud.play().catch(e => console.log("Autoplay waiting..."));
+                    el.appendChild(aud);
+                } else if (layer.type === 'camera') {
+                    const vid = document.createElement('video');
+                    if (window.remoteStreams && window.remoteStreams[id]) {
+                        vid.srcObject = window.remoteStreams[id];
+                    }
+                    vid.playsInline = true;
+                    if (layer.audio) { vid.volume = layer.audio.volume; vid.muted = layer.audio.muted; }
+                    vid.play().catch(e => console.log("Autoplay waiting..."));
+                    vid.style.width = '1920px'; vid.style.height = '1080px';
+                    vid.draggable = false;
+                    el.appendChild(vid);
+                } else if (layer.type === 'iframe') {
+                    const frame = document.createElement('iframe');
+                    frame.src = layer.src; frame.frameBorder = "0";
+                    frame.allow = "autoplay; fullscreen";
+                    frame.style.width = '1920px'; frame.style.height = '1080px';
+                    el.appendChild(frame);
+                } else if (layer.type === 'image') {
+                    const img = document.createElement('img');
+                    img.src = layer.src;
+                    img.style.width = '1920px';
+                    img.style.height = '1080px';
+                    img.style.objectFit = 'contain';
+                    img.draggable = false;
+                    el.appendChild(img);
+                } else if (layer.type === 'text') {
+                    const txt = document.createElement('div');
+                    txt.className = 'text-layer';
+                    el.appendChild(txt);
+                }
+            }
+
+            // Sync visual attributes
+            el.style.left = `${layer.x}px`;
+            el.style.top = `${layer.y}px`;
+            el.style.transform = `translate(-50%, -50%) scale(${layer.scale})`;
+            if (layer.zIndex !== undefined) el.style.zIndex = layer.zIndex;
+
+            if (layer.type === 'text') {
+                const txtNode = el.querySelector('.text-layer');
+                if (layer.content !== undefined) txtNode.innerText = layer.content;
+                if (layer.styles) {
+                    if (layer.styles.color) txtNode.style.color = layer.styles.color;
+                    if (layer.styles.fontSize) txtNode.style.fontSize = `${layer.styles.fontSize}px`;
+                }
+            }
+
+            // Sync Audio Mixer updates dynamically to the Player output
+            const mediaNode = el.querySelector('video, audio');
+            if (mediaNode && layer.audio && layer.type !== 'iframe') {
+                mediaNode.volume = layer.audio.volume;
+                mediaNode.muted = layer.audio.muted;
+            }
+
+            // Update Stream if it arrived late (Handling WebRTC Race Condition)
+            if (layer.type === 'camera' || layer.isStreamedMedia) {
+                if (mediaNode && !mediaNode.srcObject && window.remoteStreams && window.remoteStreams[id]) {
+                    mediaNode.srcObject = window.remoteStreams[id];
+                    mediaNode.play().catch(e=>console.log(e));
+                }
+            }
+        }
+
+        function removePlayerLayerDOM(id) {
+            const el = document.getElementById(`play-${id}`);
+            if (el) el.remove();
+        }
+    </script>
+</body>
+</html>
