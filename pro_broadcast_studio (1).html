@@ -678,32 +678,29 @@
                         
                         const settings = sender.track.getSettings();
                         const nativeHeight = intrinsicHeight || settings.height || 1080;
-                        const scale = nativeHeight / res.h;
                         
-                        parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
-                        
-                        // Increased Bitrates to prevent blocky artifacts on complex videos
-                        if (res.h === 1080) {
-                            parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps for pristine 1080p
-                        } else if (res.h === 720) {
-                            parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
-                        } else if (res.h === 480) {
-                            parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
+                        // Force pristine quality for 1080p by sending native stream (up to 4K) and letting receiver hardware-scale it
+                        if (res.h >= 1080) {
+                            parameters.encodings[0].scaleResolutionDownBy = 1;
+                            parameters.encodings[0].maxBitrate = 25000000; // 25 Mbps for pristine quality
                         } else {
-                            parameters.encodings[0].maxBitrate = 1000000; // 1 Mbps
+                            const scale = nativeHeight / res.h;
+                            parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
+                            if (res.h === 720) parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps
+                            else if (res.h === 480) parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
+                            else parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
                         }
                         
                         // Apply CBR or VBR settings
                         const bitrateMode = document.getElementById('bitrate-mode') ? document.getElementById('bitrate-mode').value : 'vbr';
                         if (bitrateMode === 'cbr') {
                             parameters.encodings[0].minBitrate = parameters.encodings[0].maxBitrate; // Force CBR
-                            // Ask encoder to drop frame rate instead of resolution if network struggles
-                            if(window.RTCRtpSender && 'degradationPreference' in RTCRtpSender.prototype) {
-                                // Handled at sender level below
-                            }
                         } else {
                             delete parameters.encodings[0].minBitrate;
                         }
+                        
+                        // Force encoder to maintain visual clarity (drop frames instead of blurring if network struggles)
+                        parameters.degradationPreference = 'maintain-resolution';
                         
                         sender.setParameters(parameters).catch(e => {});
                     }
@@ -757,19 +754,17 @@
                         
                         const settings = sender.track.getSettings();
                         const nativeHeight = intrinsicHeight || settings.height || 1080;
-                        const scale = nativeHeight / res.h;
                         
-                        parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
-                        
-                        // Increased Bitrates to prevent blocky artifacts on complex videos
-                        if (res.h === 1080) {
-                            parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps
-                        } else if (res.h === 720) {
-                            parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
-                        } else if (res.h === 480) {
-                            parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
+                        // Force pristine quality for 1080p by sending native stream (up to 4K) and letting receiver hardware-scale it
+                        if (res.h >= 1080) {
+                            parameters.encodings[0].scaleResolutionDownBy = 1;
+                            parameters.encodings[0].maxBitrate = 25000000; // 25 Mbps
                         } else {
-                            parameters.encodings[0].maxBitrate = 1000000;  // 1 Mbps
+                            const scale = nativeHeight / res.h;
+                            parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
+                            if (res.h === 720) parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps
+                            else if (res.h === 480) parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
+                            else parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
                         }
                         
                         // Apply CBR or VBR settings
@@ -779,6 +774,9 @@
                         } else {
                             delete parameters.encodings[0].minBitrate;
                         }
+
+                        // Force encoder to maintain visual clarity
+                        parameters.degradationPreference = 'maintain-resolution';
                         
                         sender.setParameters(parameters).catch(err => console.log("RtpSender parameters update skipped:", err));
                     }
