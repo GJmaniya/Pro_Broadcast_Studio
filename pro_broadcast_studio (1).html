@@ -1345,10 +1345,11 @@
                     if (el) {
                         const media = el.querySelector('video, audio');
                         if (media) {
-                            let stream;
-                            // Omit framerate argument to capture at video's native rate (prevents heavy CPU lag)
-                            if (media.captureStream) stream = media.captureStream();
-                            else if (media.mozCaptureStream) stream = media.mozCaptureStream();
+                            let targetFps = window.broadcastFps === 'auto' ? 30 : parseInt(window.broadcastFps);
+                            
+                            // Explicitly request framerate so the browser doesn't throttle scaled videos to 7fps
+                            if (media.captureStream) stream = media.captureStream(targetFps);
+                            else if (media.mozCaptureStream) stream = media.mozCaptureStream(targetFps);
 
                             if (stream) {
                                 window.localStreams[layer.id] = stream;
