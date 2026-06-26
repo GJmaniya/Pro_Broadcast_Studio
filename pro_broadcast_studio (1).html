@@ -295,10 +295,22 @@
                 <!-- Monitor Area -->
                 <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col relative shrink-0">
                     <div class="flex justify-between items-center mb-3 shrink-0">
-                        <h2 class="text-sm font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
-                            <span class="w-2 h-2 bg-red-500 rounded-full"></span> Program Monitor
-                        </h2>
-                        <div class="text-xs text-zinc-500 flex gap-4">
+                        <div class="flex items-center gap-4">
+                            <h2 class="text-sm font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                                <span class="w-2 h-2 bg-red-500 rounded-full"></span> Program Monitor
+                            </h2>
+                            <!-- Frame Rate Selector -->
+                            <div class="flex items-center gap-2 bg-zinc-950 px-2 py-1 rounded border border-zinc-700 shadow-inner">
+                                <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">FPS:</label>
+                                <select id="global-fps-select" onchange="updateGlobalFPS(this.value)" class="bg-transparent text-xs text-emerald-400 font-bold outline-none cursor-pointer">
+                                    <option value="auto">Auto (Native)</option>
+                                    <option value="24">24 (Film)</option>
+                                    <option value="30">30 (Standard)</option>
+                                    <option value="60">60 (Gaming/Smooth)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="text-xs text-zinc-500 hidden md:flex gap-4">
                             <span class="text-blue-400 font-bold">⬇️ Drag & Drop Files Here</span>
                             <span><kbd class="bg-zinc-800 px-1 rounded">Drag Corner</kbd> Resize</span>
                             <span><kbd class="bg-zinc-800 px-1 rounded">Drag Center</kbd> Move</span>
@@ -633,6 +645,15 @@
             }
         };
 
+        window.broadcastFps = 'auto'; // Global FPS tracking
+        window.updateGlobalFPS = function(fps) {
+            window.broadcastFps = fps;
+            // Instantly apply to all outgoing WebRTC streams
+            if (typeof updateOutgoingStreamsQuality === 'function') {
+                updateOutgoingStreamsQuality(window.lastSelectedQuality);
+            }
+        };
+
         // Active media connections list for tracking WebRTC encoders
         let activeMediaCalls = [];
         window.lastSelectedQuality = 1080;
@@ -683,6 +704,13 @@
                             parameters.encodings[0].maxBitrate = 3000000;  // 3 Mbps
                         } else {
                             parameters.encodings[0].maxBitrate = 1000000;  // 1 Mbps
+                        }
+                        
+                        // Apply user-selected framerate cap
+                        if (window.broadcastFps !== 'auto') {
+                            parameters.encodings[0].maxFramerate = parseInt(window.broadcastFps);
+                        } else {
+                            delete parameters.encodings[0].maxFramerate;
                         }
                         
                         sender.setParameters(parameters).catch(e => {});
@@ -752,6 +780,13 @@
                             parameters.encodings[0].maxBitrate = 3000000;  // 3 Mbps
                         } else {
                             parameters.encodings[0].maxBitrate = 1000000;  // 1 Mbps
+                        }
+                        
+                        // Apply user-selected framerate cap
+                        if (window.broadcastFps !== 'auto') {
+                            parameters.encodings[0].maxFramerate = parseInt(window.broadcastFps);
+                        } else {
+                            delete parameters.encodings[0].maxFramerate;
                         }
                         
                         sender.setParameters(parameters).catch(err => console.log("RtpSender parameters update skipped:", err));
