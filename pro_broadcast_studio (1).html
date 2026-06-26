@@ -680,7 +680,7 @@
                         
                         parameters.encodings[0].networkPriority = 'high';
                         parameters.encodings[0].priority = 'high';
-                        parameters.degradationPreference = 'maintain-resolution'; // Force absolute clarity, never pixelate
+                        parameters.degradationPreference = 'balanced'; // Balances crispness with framerate to ensure it doesn't drop to 12fps
                         
                         // Limit resolution and bitrate at the encoder side to ensure lag-free streaming
                         const res = RESOLUTIONS[window.lastSelectedQuality] || RESOLUTIONS[1080];
@@ -702,13 +702,13 @@
                         
                         // Increased Bitrates to prevent blocky artifacts on complex videos (Local/Broadcast quality)
                         if (res.h === 1080) {
-                            parameters.encodings[0].maxBitrate = 25000000; // 25 Mbps for flawless 1080p
+                            parameters.encodings[0].maxBitrate = 50000000; // 50 Mbps to ensure infinite bandwidth for 24+ FPS
                         } else if (res.h === 720) {
-                            parameters.encodings[0].maxBitrate = 8000000;  // 8 Mbps
+                            parameters.encodings[0].maxBitrate = 10000000;  // 10 Mbps
                         } else if (res.h === 480) {
-                            parameters.encodings[0].maxBitrate = 3000000;  // 3 Mbps
+                            parameters.encodings[0].maxBitrate = 5000000;  // 5 Mbps
                         } else {
-                            parameters.encodings[0].maxBitrate = 1000000;  // 1 Mbps
+                            parameters.encodings[0].maxBitrate = 2000000;  // 2 Mbps
                         }
                         
                         // Apply user-selected framerate cap
@@ -759,7 +759,7 @@
                         const parameters = sender.getParameters();
                         if (!parameters.encodings) parameters.encodings = [{}];
                         
-                        parameters.degradationPreference = 'maintain-resolution'; // Force absolute clarity, never pixelate
+                        parameters.degradationPreference = 'balanced'; // Balances crispness with framerate
 
                         // Extract real intrinsic height from the DOM element
                         const layerId = call.metadata ? call.metadata.layerId : null;
@@ -778,13 +778,13 @@
                         
                         // Increased Bitrates to prevent blocky artifacts on complex videos (Local/Broadcast quality)
                         if (res.h === 1080) {
-                            parameters.encodings[0].maxBitrate = 25000000; // 25 Mbps
+                            parameters.encodings[0].maxBitrate = 50000000; // 50 Mbps
                         } else if (res.h === 720) {
-                            parameters.encodings[0].maxBitrate = 8000000;  // 8 Mbps
+                            parameters.encodings[0].maxBitrate = 10000000;  // 10 Mbps
                         } else if (res.h === 480) {
-                            parameters.encodings[0].maxBitrate = 3000000;  // 3 Mbps
+                            parameters.encodings[0].maxBitrate = 5000000;  // 5 Mbps
                         } else {
-                            parameters.encodings[0].maxBitrate = 1000000;  // 1 Mbps
+                            parameters.encodings[0].maxBitrate = 2000000;  // 2 Mbps
                         }
                         
                         // Apply user-selected framerate cap
@@ -1107,9 +1107,11 @@
                         const media = el.querySelector('video, audio');
                         if (media) {
                             let stream;
-                            // Omit framerate argument to capture at video's native rate (prevents heavy CPU lag)
-                            if (media.captureStream) stream = media.captureStream();
-                            else if (media.mozCaptureStream) stream = media.mozCaptureStream();
+                            // Force a minimum of 24 FPS to prevent browser from defaulting to low framerates
+                            const targetFps = window.broadcastFps === 'auto' ? 30 : parseInt(window.broadcastFps);
+                            const finalFps = Math.max(24, targetFps);
+                            if (media.captureStream) stream = media.captureStream(finalFps);
+                            else if (media.mozCaptureStream) stream = media.mozCaptureStream(finalFps);
                             
                             if (stream) {
                                 window.localStreams[layer.id] = stream;
