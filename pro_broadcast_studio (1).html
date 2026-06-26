@@ -34,8 +34,14 @@
             overflow: hidden;
         }
 
-        /* Quality rendering: hidden source videos, visible canvas output */
+        /* Quality rendering: toggle between direct video and canvas modes */
         .quality-source-video {
+            width: 1920px;
+            height: 1080px;
+            pointer-events: none;
+        }
+        /* When canvas mode is active (lower quality), hide video and show canvas */
+        .canvas-mode .quality-source-video {
             position: absolute !important;
             opacity: 0 !important;
             pointer-events: none !important;
@@ -46,6 +52,10 @@
             width: 1920px;
             height: 1080px;
             pointer-events: none;
+            display: none;
+        }
+        .canvas-mode .quality-canvas {
+            display: block;
         }
 
         #player-canvas {
@@ -1339,32 +1349,68 @@
         // Track all quality rendering loops so we can update them
         window._qualityCanvases = {};
 
+        // Returns true if we need the canvas pipeline (quality < 1080p)
+        function isCanvasModeNeeded() {
+            return activeRes.h < 1080;
+        }
+
         // Start a rendering loop that draws a video source onto a canvas at the active resolution
         function startQualityRenderLoop(layerId, sourceVideo, displayCanvas) {
             const ctx = displayCanvas.getContext('2d');
-            // Set canvas internal resolution to quality setting
             displayCanvas.width = activeRes.w;
             displayCanvas.height = activeRes.h;
 
-            window._qualityCanvases[layerId] = { source: sourceVideo, canvas: displayCanvas, ctx: ctx };
+            window._qualityCanvases[layerId] = { source: sourceVideo, canvas: displayCanvas, ctx: ctx, active: true };
 
             function drawFrame() {
-                if (!window._qualityCanvases[layerId]) return;
-                if (!sourceVideo.paused && !sourceVideo.ended && sourceVideo.readyState >= 2) {
+                const entry = window._qualityCanvases[layerId];
+                if (!entry || !entry.active) return;
+                // Only draw if canvas mode is needed (below 1080p)
+                if (isCanvasModeNeeded() && !sourceVideo.paused && !sourceVideo.ended && sourceVideo.readyState >= 2) {
                     ctx.drawImage(sourceVideo, 0, 0, displayCanvas.width, displayCanvas.height);
                 }
                 requestAnimationFrame(drawFrame);
             }
-            requestAnimationFrame(drawFrame);
+            // Only start the loop if actually needed
+            if (isCanvasModeNeeded()) {
+                requestAnimationFrame(drawFrame);
+            }
         }
 
-        // Update all quality canvases when resolution changes
-        function updateAllQualityCanvases() {
+        // Apply canvas-mode class to all layer elements and update canvas sizes
+        function applyQualityModeToAllLayers() {
+            const container = document.getElementById('player-layer-container');
+            if (!container) return;
+            const needCanvas = isCanvasModeNeeded();
+
+            // Toggle canvas-mode class on all layer elements that have video+canvas
+            container.querySelectorAll('.layer-element').forEach(el => {
+                if (el.querySelector('.quality-canvas')) {
+                    if (needCanvas) el.classList.add('canvas-mode');
+                    else el.classList.remove('canvas-mode');
+                }
+            });
+
+            // Update canvas internal resolution and restart render loops if needed
             Object.keys(window._qualityCanvases).forEach(id => {
                 const entry = window._qualityCanvases[id];
                 if (entry && entry.canvas) {
                     entry.canvas.width = activeRes.w;
                     entry.canvas.height = activeRes.h;
+                    if (needCanvas && !entry.active) {
+                        entry.active = true;
+                        // Restart render loop
+                        function drawFrame() {
+                            if (!entry.active || !window._qualityCanvases[id]) return;
+                            if (isCanvasModeNeeded() && !entry.source.paused && !entry.source.ended && entry.source.readyState >= 2) {
+                                entry.ctx.drawImage(entry.source, 0, 0, entry.canvas.width, entry.canvas.height);
+                            }
+                            requestAnimationFrame(drawFrame);
+                        }
+                        requestAnimationFrame(drawFrame);
+                    } else if (!needCanvas) {
+                        entry.active = false; // Stop the render loop at 1080p
+                    }
                 }
             });
         }
@@ -1398,13 +1444,13 @@
             // Highlight the correct button in the player quality panel
             highlightPlayerQualityBtn(activeRes.h);
 
-            // Live quality switch — changes video CLARITY by updating canvas internal resolution
+            // Live quality switch — changes video CLARITY
             window.switchPlayerQuality = function(height) {
                 if (!RESOLUTIONS[height]) return;
                 activeRes = RESOLUTIONS[height];
 
-                // Update all rendering canvases to new internal resolution (clarity changes)
-                updateAllQualityCanvases();
+                // At 1080p: show video directly (no lag). Below 1080p: use canvas pipeline
+                applyQualityModeToAllLayers();
 
                 // Update badge
                 const b = document.getElementById('res-badge');
@@ -1546,7 +1592,7 @@
                 container.appendChild(el);
 
                 if (layer.type === 'video') {
-                    // Hidden source video
+                    // Source video (visible at 1080p, hidden when canvas mode active)
                     const vid = document.createElement('video');
                     vid.className = 'quality-source-video';
                     if (layer.isStreamedMedia) {
@@ -1559,10 +1605,11 @@
                     vid.play().catch(e => console.log("Autoplay waiting..."));
                     vid.draggable = false;
                     el.appendChild(vid);
-                    // Visible quality canvas (renders at selected resolution, displayed at 1920x1080)
+                    // Quality canvas (only used below 1080p)
                     const qCanvas = document.createElement('canvas');
                     qCanvas.className = 'quality-canvas';
                     el.appendChild(qCanvas);
+                    if (isCanvasModeNeeded()) el.classList.add('canvas-mode');
                     vid.addEventListener('playing', () => startQualityRenderLoop(id, vid, qCanvas));
                     startQualityRenderLoop(id, vid, qCanvas);
                 } else if (layer.type === 'audio') {
@@ -1577,7 +1624,7 @@
                     aud.play().catch(e => console.log("Autoplay waiting..."));
                     el.appendChild(aud);
                 } else if (layer.type === 'camera') {
-                    // Hidden source video
+                    // Source video (visible at 1080p, hidden in canvas mode)
                     const vid = document.createElement('video');
                     vid.className = 'quality-source-video';
                     if (window.remoteStreams && window.remoteStreams[id]) {
@@ -1588,10 +1635,11 @@
                     vid.play().catch(e => console.log("Autoplay waiting..."));
                     vid.draggable = false;
                     el.appendChild(vid);
-                    // Visible quality canvas
+                    // Quality canvas (only used below 1080p)
                     const qCanvas = document.createElement('canvas');
                     qCanvas.className = 'quality-canvas';
                     el.appendChild(qCanvas);
+                    if (isCanvasModeNeeded()) el.classList.add('canvas-mode');
                     vid.addEventListener('playing', () => startQualityRenderLoop(id, vid, qCanvas));
                     startQualityRenderLoop(id, vid, qCanvas);
                 } else if (layer.type === 'iframe') {
