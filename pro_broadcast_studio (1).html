@@ -642,10 +642,19 @@
             setupPropertiesPanelListeners();
             setupDragAndDrop();
 
+            if (peer) {
+                try { peer.destroy(); } catch(e) {}
+            }
+
             peer = new Peer('studio-host-' + currentRoomId, peerConfig);
             
             peer.on('open', (id) => {
                 setP2PStatus('Waiting for Remote Player...', 'text-amber-400');
+            });
+
+            peer.on('disconnected', () => {
+                console.log('Controller peer disconnected from signaling server. Reconnecting...');
+                peer.reconnect();
             });
 
             peer.on('connection', (conn) => {
@@ -665,15 +674,28 @@
                     p2pConnections = p2pConnections.filter(c => c !== conn);
                     if(p2pConnections.length === 0) setP2PStatus('Waiting for Remote Player...', 'text-amber-400');
                 });
+
+                conn.on('error', (err) => {
+                    console.error("Connection error on host:", err);
+                    conn.close();
+                });
             });
 
             peer.on('error', (err) => {
-                console.error(err);
+                console.error("Controller peer error:", err);
                 if (err.type === 'unavailable-id') {
                     setP2PStatus('Controller open elsewhere', 'text-red-500');
                 } else {
                     setP2PStatus('Connection Error', 'text-red-500');
+                    setTimeout(() => {
+                        if (!peer || peer.destroyed) initController();
+                    }, 5000);
                 }
+            });
+
+            // Cleanup when closing tab to instantly release Room ID
+            window.addEventListener('beforeunload', () => {
+                if (peer) peer.destroy();
             });
 
             startMediaSyncLoop();
@@ -1486,36 +1508,56 @@
                 });
             }
 
+            if (peer) {
+                try { peer.destroy(); } catch(e) {}
+            }
+
             peer = new Peer(peerConfig);
-            
-            peer.on('open', () => {
-                // Receive incoming Camera Streams & Streamed Files from Host
-                peer.on('call', call => {
-                    call.answer();
-                    call.on('stream', remoteStream => {
-                        const layerId = call.metadata.layerId;
-                        window.remoteStreams = window.remoteStreams || {};
-                        window.remoteStreams[layerId] = remoteStream;
-                        renderPlayerLayer(layerId); 
-                    });
-                });
+            let reconnectInterval = null;
+
+            function connectToHost() {
+                if (reconnectInterval) clearInterval(reconnectInterval);
+
+                if (hostConnection) {
+                    try { hostConnection.close(); } catch(e) {}
+                    hostConnection = null;
+                }
+
+                console.log("Player connecting to studio-host-" + currentRoomId);
+                
+                const startOverlay = document.getElementById('start-overlay');
+                if (startOverlay && startOverlay.style.display !== 'none') {
+                    startOverlay.innerHTML = `
+                        <div class="p-8 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col items-center gap-4">
+                            <div class="w-16 h-16 bg-amber-600 rounded-full flex items-center justify-center animate-pulse">
+                                <svg class="w-8 h-8 text-white ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            </div>
+                            <h2 class="text-3xl font-bold text-white mt-4">Connecting to Studio...</h2>
+                            <p class="text-zinc-400 text-center">Make sure the Controller is open and active.<br>Retrying automatically...</p>
+                        </div>
+                    `;
+                }
 
                 hostConnection = peer.connect('studio-host-' + currentRoomId, { reliable: true });
                 
                 hostConnection.on('open', () => {
-                    document.getElementById('start-overlay').innerHTML = `
-                        <div class="p-8 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col items-center gap-4">
-                            <div class="w-16 h-16 bg-emerald-600 rounded-full flex items-center justify-center">
-                                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                    console.log("Connected to studio host successfully!");
+                    if (reconnectInterval) clearInterval(reconnectInterval);
+
+                    if (startOverlay) {
+                        startOverlay.innerHTML = `
+                            <div class="p-8 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col items-center gap-4">
+                                <div class="w-16 h-16 bg-emerald-600 rounded-full flex items-center justify-center">
+                                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <h2 class="text-3xl font-bold text-white mt-4">Audio/Video Remote Link Active</h2>
+                                <p class="text-zinc-400 text-center">Click anywhere to start rendering.</p>
                             </div>
-                            <h2 class="text-3xl font-bold text-white mt-4">Audio/Video Remote Link Active</h2>
-                            <p class="text-zinc-400 text-center">Click anywhere to start rendering.</p>
-                        </div>
-                    `;
+                        `;
+                    }
                 });
 
                 hostConnection.on('data', (msg) => {
-                    
                     const processIncomingLayer = (layer) => {
                         if (layer.isBlob && layer.fileBlob) {
                             const blob = new Blob([layer.fileBlob], { type: layer.mimeType });
@@ -1562,7 +1604,6 @@
                             if (el) {
                                 const media = el.querySelector('video, audio');
                                 if (media && msg.data[id]) {
-                                    // Don't auto-correct live camera/file streams as they don't have standard time offsets
                                     if (window.layers[id] && window.layers[id].type !== 'camera' && !window.layers[id].isStreamedMedia) {
                                         if (Math.abs(media.currentTime - msg.data[id].time) > 0.5) {
                                             media.currentTime = msg.data[id].time;
@@ -1575,6 +1616,58 @@
                         });
                     }
                 });
+
+                hostConnection.on('close', () => {
+                    console.log("Studio host connection closed. Reconnecting...");
+                    startReconnectTimer();
+                });
+
+                hostConnection.on('error', (err) => {
+                    console.error("Connection error:", err);
+                    startReconnectTimer();
+                });
+            }
+
+            function startReconnectTimer() {
+                if (reconnectInterval) return;
+                reconnectInterval = setInterval(() => {
+                    connectToHost();
+                }, 3000);
+            }
+
+            peer.on('open', () => {
+                // Receive incoming Camera Streams & Streamed Files from Host
+                peer.on('call', call => {
+                    call.answer();
+                    call.on('stream', remoteStream => {
+                        const layerId = call.metadata.layerId;
+                        window.remoteStreams = window.remoteStreams || {};
+                        window.remoteStreams[layerId] = remoteStream;
+                        renderPlayerLayer(layerId); 
+                    });
+                });
+
+                connectToHost();
+            });
+
+            peer.on('disconnected', () => {
+                console.log("Player peer disconnected from signaling server. Reconnecting peer...");
+                peer.reconnect();
+            });
+
+            peer.on('error', (err) => {
+                console.error("Player peer error:", err);
+                if (err.type === 'peer-unavailable' || err.type === 'connection-failed') {
+                    startReconnectTimer();
+                } else {
+                    setTimeout(() => {
+                        if (!peer || peer.destroyed) initPlayer();
+                    }, 5000);
+                }
+            });
+
+            window.addEventListener('beforeunload', () => {
+                if (peer) peer.destroy();
             });
         }
 
