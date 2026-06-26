@@ -392,6 +392,15 @@
                     
                     <h2 class="text-sm font-bold text-zinc-100 uppercase tracking-wider">Add New Layer</h2>
 
+                    <!-- Bitrate Mode Selection -->
+                    <div class="bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-2">
+                        <label class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest border-b border-zinc-800 pb-2">Stream Bitrate Mode</label>
+                        <select id="bitrate-mode" class="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-2 text-sm text-zinc-300 focus:border-blue-500 outline-none" onchange="if(window.updateOutgoingStreamsQuality) window.updateOutgoingStreamsQuality(window.lastSelectedQuality)">
+                            <option value="vbr">VBR (Variable Bitrate - Recommended)</option>
+                            <option value="cbr">CBR (Constant Bitrate - Fixed Quality)</option>
+                        </select>
+                    </div>
+
                     <!-- Transfer Mode Selection -->
                     <div class="bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-3">
                         <label class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest border-b border-zinc-800 pb-2">Media Transfer Mode</label>
@@ -684,6 +693,18 @@
                             parameters.encodings[0].maxBitrate = 1000000; // 1 Mbps
                         }
                         
+                        // Apply CBR or VBR settings
+                        const bitrateMode = document.getElementById('bitrate-mode') ? document.getElementById('bitrate-mode').value : 'vbr';
+                        if (bitrateMode === 'cbr') {
+                            parameters.encodings[0].minBitrate = parameters.encodings[0].maxBitrate; // Force CBR
+                            // Ask encoder to drop frame rate instead of resolution if network struggles
+                            if(window.RTCRtpSender && 'degradationPreference' in RTCRtpSender.prototype) {
+                                // Handled at sender level below
+                            }
+                        } else {
+                            delete parameters.encodings[0].minBitrate;
+                        }
+                        
                         sender.setParameters(parameters).catch(e => {});
                     }
                 });
@@ -749,6 +770,14 @@
                             parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
                         } else {
                             parameters.encodings[0].maxBitrate = 1000000;  // 1 Mbps
+                        }
+                        
+                        // Apply CBR or VBR settings
+                        const bitrateMode = document.getElementById('bitrate-mode') ? document.getElementById('bitrate-mode').value : 'vbr';
+                        if (bitrateMode === 'cbr') {
+                            parameters.encodings[0].minBitrate = parameters.encodings[0].maxBitrate; // Force CBR
+                        } else {
+                            delete parameters.encodings[0].minBitrate;
                         }
                         
                         sender.setParameters(parameters).catch(err => console.log("RtpSender parameters update skipped:", err));
