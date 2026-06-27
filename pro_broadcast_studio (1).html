@@ -870,17 +870,19 @@
 
                         const settings = sender.track.getSettings();
                         const nativeHeight = intrinsicHeight || settings.height || 1080;
-
-                        // Force pristine quality for 1080p by sending native stream (up to 4K) and letting receiver hardware-scale it
+                        const scale = nativeHeight / res.h;
+                        
+                        // Downscale before encoding to save CPU and maintain 30 FPS
+                        parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
+                        
                         if (res.h >= 1080) {
-                            parameters.encodings[0].scaleResolutionDownBy = 1;
-                            parameters.encodings[0].maxBitrate = 25000000; // 25 Mbps for pristine quality
+                            parameters.encodings[0].maxBitrate = 20000000; // 20 Mbps for pristine, pixel-free 1080p
+                        } else if (res.h === 720) {
+                            parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps
+                        } else if (res.h === 480) {
+                            parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
                         } else {
-                            const scale = nativeHeight / res.h;
-                            parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
-                            if (res.h === 720) parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps
-                            else if (res.h === 480) parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
-                            else parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
+                            parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
                         }
 
                         // Apply CBR or VBR settings
@@ -891,10 +893,10 @@
                             delete parameters.encodings[0].minBitrate;
                         }
 
-                        // Force encoder to try and maintain 18-30 FPS. 'balanced' degrades resolution slightly to protect framerate.
-                        parameters.degradationPreference = 'balanced';
+                        // STRICT PRIORITY: Never blur, never pixelate. (Keeps 1080p sharp)
+                        parameters.degradationPreference = 'maintain-resolution';
                         
-                        // Force 30fps max to stabilize the stream and prevent extreme drops
+                        // Prevent random WebRTC framerate spikes
                         parameters.encodings[0].maxFramerate = 30;
 
                         sender.setParameters(parameters).catch(e => { });
@@ -949,17 +951,19 @@
 
                         const settings = sender.track.getSettings();
                         const nativeHeight = intrinsicHeight || settings.height || 1080;
-
-                        // Force pristine quality for 1080p by sending native stream (up to 4K) and letting receiver hardware-scale it
+                        const scale = nativeHeight / res.h;
+                        
+                        // Downscale before encoding to save CPU and maintain 30 FPS
+                        parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
+                        
                         if (res.h >= 1080) {
-                            parameters.encodings[0].scaleResolutionDownBy = 1;
-                            parameters.encodings[0].maxBitrate = 25000000; // 25 Mbps
+                            parameters.encodings[0].maxBitrate = 20000000; // 20 Mbps for pristine, pixel-free 1080p
+                        } else if (res.h === 720) {
+                            parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps
+                        } else if (res.h === 480) {
+                            parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
                         } else {
-                            const scale = nativeHeight / res.h;
-                            parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
-                            if (res.h === 720) parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps
-                            else if (res.h === 480) parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
-                            else parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
+                            parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
                         }
 
                         // Apply CBR or VBR settings
@@ -970,10 +974,10 @@
                             delete parameters.encodings[0].minBitrate;
                         }
 
-                        // Force encoder to try and maintain 18-30 FPS.
-                        parameters.degradationPreference = 'balanced';
+                        // STRICT PRIORITY: Never blur, never pixelate.
+                        parameters.degradationPreference = 'maintain-resolution';
                         
-                        // Force 30fps max to stabilize the stream and prevent extreme drops
+                        // Prevent random WebRTC framerate spikes
                         parameters.encodings[0].maxFramerate = 30;
 
                         sender.setParameters(parameters).catch(err => console.log("RtpSender parameters update skipped:", err));
@@ -1324,8 +1328,8 @@
                             else if (media.mozCaptureStream) stream = media.mozCaptureStream(30);
 
                             if (stream) {
-                                // Tell WebRTC this is a high-motion video so it prioritizes keeping FPS above 18+
-                                stream.getVideoTracks().forEach(t => t.contentHint = 'motion');
+                                // Tell WebRTC this is a high-detail video so it prioritizes crisp pixels over everything else
+                                stream.getVideoTracks().forEach(t => t.contentHint = 'detail');
                                 
                                 window.localStreams[layer.id] = stream;
                                 p2pConnections.forEach(conn => {
