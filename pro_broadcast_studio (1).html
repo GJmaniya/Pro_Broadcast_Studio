@@ -872,7 +872,7 @@
                         const nativeHeight = intrinsicHeight || settings.height || 1080;
                         const scale = nativeHeight / res.h;
                         
-                        // Downscale before encoding to save CPU and maintain 30 FPS
+                        // Downscale before encoding to save CPU and maintain a fixed 25 FPS
                         parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
                         
                         if (res.h >= 1080) {
@@ -953,7 +953,7 @@
                         const nativeHeight = intrinsicHeight || settings.height || 1080;
                         const scale = nativeHeight / res.h;
                         
-                        // Downscale before encoding to save CPU and maintain 30 FPS
+                        // Downscale before encoding to save CPU and maintain a fixed 25 FPS
                         parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
                         
                         if (res.h >= 1080) {
@@ -1203,11 +1203,12 @@
             }
 
             // Force 1920x1080 Resolution Capture for Camera
+            // Lock capture to exactly 25 FPS (mandatory minimum and maximum)
             navigator.mediaDevices.getUserMedia({
                 video: {
                     width: { ideal: 1920 },
                     height: { ideal: 1080 },
-                    frameRate: { ideal: 30, max: 30 }
+                    frameRate: { ideal: 25, min: 25, max: 25 }
                 },
                 audio: true
             }).then(stream => {
@@ -1323,14 +1324,47 @@
                         const media = el.querySelector('video, audio');
                         if (media) {
                             let stream;
-                            // Lock capture to exactly 25 FPS to match encoder target
-                            if (media.captureStream) stream = media.captureStream(25);
-                            else if (media.mozCaptureStream) stream = media.mozCaptureStream(25);
+
+                            if (media.tagName === 'VIDEO') {
+                                // === GPU PRE-SCALER: Render source video into a 1080p canvas at 25 FPS ===
+                                // This means the WebRTC encoder ONLY sees clean 1080p frames — NOT raw 4K.
+                                // The browser GPU does the heavy downscaling for free, keeping CPU usage low.
+                                const TARGET_W = 1920;
+                                const TARGET_H = 1080;
+                                const FPS = 25;
+
+                                const offscreen = document.createElement('canvas');
+                                offscreen.width = TARGET_W;
+                                offscreen.height = TARGET_H;
+                                const ctx = offscreen.getContext('2d');
+
+                                // Draw frames at exactly 25 FPS using setInterval
+                                const layerIdRef = layer.id;
+                                const renderInterval = setInterval(() => {
+                                    // Stop rendering if the layer is removed
+                                    if (!window.localStreams[layerIdRef]) {
+                                        clearInterval(renderInterval);
+                                        return;
+                                    }
+                                    if (!media.paused && !media.ended && media.readyState >= 2) {
+                                        ctx.drawImage(media, 0, 0, TARGET_W, TARGET_H);
+                                    }
+                                }, 1000 / FPS);
+
+                                // Capture the pre-scaled 1080p canvas as the stream
+                                stream = offscreen.captureStream(FPS);
+                                stream.getVideoTracks().forEach(t => t.contentHint = 'detail');
+
+                                // Store the interval so we can clear it on layer removal
+                                window._canvasRenderIntervals = window._canvasRenderIntervals || {};
+                                window._canvasRenderIntervals[layer.id] = renderInterval;
+                            } else {
+                                // Audio-only: capture directly
+                                if (media.captureStream) stream = media.captureStream(25);
+                                else if (media.mozCaptureStream) stream = media.mozCaptureStream(25);
+                            }
 
                             if (stream) {
-                                // Tell WebRTC this is a high-detail video so it prioritizes crisp pixels over everything else
-                                stream.getVideoTracks().forEach(t => t.contentHint = 'detail');
-                                
                                 window.localStreams[layer.id] = stream;
                                 p2pConnections.forEach(conn => {
                                     const call = peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
@@ -1766,12 +1800,16 @@
         }
 
         // Start a rendering loop that draws a video source onto a canvas at the active resolution
+        // Locked to exactly 25 FPS (not tied to display refresh rate)
+        const TARGET_FPS = 25;
+        const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+
         function startQualityRenderLoop(layerId, sourceVideo, displayCanvas) {
             const ctx = displayCanvas.getContext('2d');
             displayCanvas.width = activeRes.w;
             displayCanvas.height = activeRes.h;
 
-            window._qualityCanvases[layerId] = { source: sourceVideo, canvas: displayCanvas, ctx: ctx, active: true };
+            window._qualityCanvases[layerId] = { source: sourceVideo, canvas: displayCanvas, ctx: ctx, active: true, timer: null };
 
             function drawFrame() {
                 const entry = window._qualityCanvases[layerId];
@@ -1780,11 +1818,10 @@
                 if (isCanvasModeNeeded() && !sourceVideo.paused && !sourceVideo.ended && sourceVideo.readyState >= 2) {
                     ctx.drawImage(sourceVideo, 0, 0, displayCanvas.width, displayCanvas.height);
                 }
-                requestAnimationFrame(drawFrame);
             }
             // Only start the loop if actually needed
             if (isCanvasModeNeeded()) {
-                requestAnimationFrame(drawFrame);
+                window._qualityCanvases[layerId].timer = setInterval(drawFrame, FRAME_INTERVAL_MS);
             }
         }
 
@@ -1810,17 +1847,20 @@
                     entry.canvas.height = activeRes.h;
                     if (needCanvas && !entry.active) {
                         entry.active = true;
-                        // Restart render loop
-                        function drawFrame() {
+                        // Restart render loop locked to exactly 25 FPS
+                        if (entry.timer) clearInterval(entry.timer);
+                        entry.timer = setInterval(() => {
                             if (!entry.active || !window._qualityCanvases[id]) return;
                             if (isCanvasModeNeeded() && !entry.source.paused && !entry.source.ended && entry.source.readyState >= 2) {
                                 entry.ctx.drawImage(entry.source, 0, 0, entry.canvas.width, entry.canvas.height);
                             }
-                            requestAnimationFrame(drawFrame);
-                        }
-                        requestAnimationFrame(drawFrame);
+                        }, FRAME_INTERVAL_MS);
                     } else if (!needCanvas) {
                         entry.active = false; // Stop the render loop at 1080p
+                        if (entry.timer) {
+                            clearInterval(entry.timer);
+                            entry.timer = null;
+                        }
                     }
                 }
             });
