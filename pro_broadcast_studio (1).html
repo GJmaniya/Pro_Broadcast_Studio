@@ -1316,35 +1316,46 @@
                 renderControllerLayer(layer.id);
                 renderLayerStack();
 
-                // Wait briefly for the HTML element to render so we can capture its stream
+                // Wait for the HTML element to render, then wait for video metadata to load before capturing stream
                 setTimeout(() => {
                     const el = document.getElementById(`ctrl-${layer.id}`);
-                    if (el) {
-                        const media = el.querySelector('video, audio');
-                        if (media) {
-                            let stream;
-                            // Force 30fps capture to prevent browser from throttling frames when window is inactive
-                            if (media.captureStream) stream = media.captureStream(30);
-                            else if (media.mozCaptureStream) stream = media.mozCaptureStream(30);
+                    if (!el) return;
+                    const media = el.querySelector('video, audio');
+                    if (!media) return;
 
-                            if (stream) {
-                                // Tell WebRTC this is a high-detail video so it prioritizes crisp pixels over everything else
-                                stream.getVideoTracks().forEach(t => t.contentHint = 'detail');
-                                
-                                window.localStreams[layer.id] = stream;
-                                p2pConnections.forEach(conn => {
-                                    const call = peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
-                                    registerMediaCall(call);
-                                });
-                            }
+                    const captureAndSend = () => {
+                        let stream;
+                        // Force 30fps capture to prevent browser from throttling frames when window is inactive
+                        if (media.captureStream) stream = media.captureStream(30);
+                        else if (media.mozCaptureStream) stream = media.mozCaptureStream(30);
+
+                        // Ensure the stream actually successfully grabbed the video tracks
+                        if (stream && stream.getVideoTracks().length > 0) {
+                            stream.getVideoTracks().forEach(t => t.contentHint = 'detail');
+                            window.localStreams[layer.id] = stream;
+                            
+                            p2pConnections.forEach(conn => {
+                                const call = peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
+                                registerMediaCall(call);
+                            });
+                            
+                            // Broadcast layer instruction to remote player (without the local URL)
+                            const remoteLayer = { ...layer };
+                            delete remoteLayer.src;
+                            broadcastData({ type: 'ADD_LAYER', layer: remoteLayer });
+                        } else {
+                            // If tracks aren't ready yet (heavy 4K video loading), retry shortly
+                            setTimeout(captureAndSend, 500);
                         }
-                    }
+                    };
 
-                    // Broadcast layer instruction to remote player (without the local URL)
-                    const remoteLayer = { ...layer };
-                    delete remoteLayer.src;
-                    broadcastData({ type: 'ADD_LAYER', layer: remoteLayer });
-                }, 500);
+                    // Only capture if video has enough data loaded to expose its tracks
+                    if (media.readyState >= 2) {
+                        captureAndSend();
+                    } else {
+                        media.onloadeddata = captureAndSend;
+                    }
+                }, 50);
             }
         }
 
