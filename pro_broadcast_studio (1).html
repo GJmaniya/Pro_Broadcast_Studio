@@ -471,9 +471,10 @@
 
                 <!-- Properties Panel -->
                 <div id="properties-panel" class="bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-lg hidden">
-                    <h2
-                        class="text-sm font-bold text-blue-400 mb-4 uppercase tracking-wider border-b border-zinc-800 pb-2">
-                        Layer Properties</h2>
+                    <div class="flex justify-between items-center mb-4 border-b border-zinc-800 pb-2">
+                        <h2 class="text-sm font-bold text-blue-400 uppercase tracking-wider">Layer Properties</h2>
+                        <button onclick="document.getElementById('properties-panel').classList.add('hidden')" class="text-zinc-500 hover:text-white text-lg leading-none" title="Close">✕</button>
+                    </div>
 
                     <div id="prop-text-controls" class="space-y-4 hidden">
                         <div>
@@ -539,14 +540,44 @@
                         </div>
                     </div>
 
+                    <!-- Video Playback Controller (only visible when video layer is selected) -->
+                    <div id="prop-video-controls" class="space-y-3 hidden mt-4">
+                        <h3 class="text-xs font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800 pb-1">Video Controller</h3>
+
+                        <!-- Time Display -->
+                        <div class="flex justify-between text-xs font-mono text-zinc-400">
+                            <span id="prop-video-current">0:00</span>
+                            <span id="prop-video-duration">0:00</span>
+                        </div>
+
+                        <!-- Progress / Scrub Bar -->
+                        <input type="range" id="prop-video-seek" min="0" max="100" step="0.1" value="0"
+                            class="w-full accent-blue-500 cursor-pointer"
+                            oninput="window.seekControllerVideo(this.value)">
+
+                        <!-- Playback Buttons Row -->
+                        <div class="flex items-center gap-2">
+                            <button id="prop-video-restart" onclick="window.restartControllerVideo()"
+                                class="flex-none bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded text-sm font-bold transition-colors" title="Restart">⏮</button>
+                            <button id="prop-video-playpause" onclick="window.toggleControllerVideo()"
+                                class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded text-sm font-bold transition-colors">▶ Play</button>
+                            <button id="prop-video-loop" onclick="window.toggleControllerLoop()"
+                                class="flex-none bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded text-sm font-bold transition-colors border border-zinc-700" title="Toggle Loop">🔁 Loop: OFF</button>
+                        </div>
+                    </div>
+
                 </div>
 
                 <!-- Media Input Hub -->
                 <div
-                    class="bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-lg flex-1 flex flex-col gap-5 relative overflow-hidden">
-                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
+                    class="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg flex flex-col gap-0 relative overflow-hidden"
+                    style="max-height: 420px;">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500 z-10"></div>
 
-                    <h2 class="text-sm font-bold text-zinc-100 uppercase tracking-wider">Add New Layer</h2>
+                    <h2 class="text-sm font-bold text-zinc-100 uppercase tracking-wider px-5 pt-5 pb-3 shrink-0">Add New Layer</h2>
+
+                    <!-- Scrollable content area -->
+                    <div class="overflow-y-auto flex flex-col gap-5 px-5 pb-5" style="scrollbar-width: thin; scrollbar-color: #3f3f46 transparent;">
 
                     <!-- Bitrate Mode Selection -->
                     <div class="bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-2">
@@ -642,25 +673,50 @@
                                 Add Text</button>
                         </div>
                     </div>
+                    </div> <!-- end scrollable inner -->
+                </div> <!-- end Add New Layer card -->
 
-                    <!-- Global Playback Controls -->
-                    <div class="mt-auto bg-zinc-950 rounded-xl p-3 border border-zinc-800">
-                        <label
-                            class="block text-[10px] font-bold text-zinc-500 mb-2 uppercase text-center tracking-widest">Global
-                            Commands</label>
-                        <div class="flex gap-2">
-                            <button onclick="sendGlobalCommand('PLAY')"
-                                class="flex-1 bg-zinc-800 hover:bg-zinc-700 text-green-400 py-2 rounded text-xs font-bold transition-colors">▶
-                                PLAY</button>
-                            <button onclick="sendGlobalCommand('PAUSE')"
-                                class="flex-1 bg-zinc-800 hover:bg-zinc-700 text-amber-400 py-2 rounded text-xs font-bold transition-colors">⏸
-                                PAUSE</button>
-                            <button onclick="sendGlobalCommand('CLEAR_ALL')"
-                                class="bg-red-900/40 hover:bg-red-900/80 text-red-400 px-3 py-2 rounded text-xs font-bold transition-colors border border-red-900/50"
-                                title="Panic Clear">CLEAR ALL</button>
-                        </div>
+                <!-- ====== PERSISTENT VIDEO CONTROLLER ====== -->
+                <div id="video-ctrl-card" class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 shadow-lg flex flex-col gap-3 hidden relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-blue-500"></div>
+
+                    <div class="flex justify-between items-center">
+                        <h2 class="text-sm font-bold text-zinc-100 uppercase tracking-wider">🎬 Video Controller</h2>
+                        <span id="vc-layer-name" class="text-[10px] text-zinc-500 truncate max-w-[140px]">No video</span>
+                    </div>
+
+                    <!-- Time display -->
+                    <div class="flex justify-between text-xs font-mono">
+                        <span id="vc-current" class="text-emerald-400 font-bold">0:00</span>
+                        <span id="vc-duration" class="text-zinc-500">0:00</span>
+                    </div>
+
+                    <!-- Progress scrub bar -->
+                    <input type="range" id="vc-seek" min="0" max="100" step="0.1" value="0"
+                        class="w-full accent-emerald-500 cursor-pointer"
+                        oninput="window.vcSeek(this.value)">
+
+                    <!-- Buttons row -->
+                    <div class="flex gap-2">
+                        <button onclick="window.vcRestart()"
+                            class="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded-lg text-sm font-bold transition-colors" title="Restart">⏮</button>
+                        <button id="vc-playpause" onclick="window.vcTogglePlay()"
+                            class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm font-bold transition-colors">▶ Play</button>
+                        <button id="vc-loop" onclick="window.vcToggleLoop()"
+                            class="bg-zinc-800 hover:bg-zinc-700 text-zinc-400 px-3 py-2 rounded-lg text-sm font-bold transition-colors border border-zinc-700" title="Loop">🔁 OFF</button>
+                    </div>
+
+                    <!-- Volume Row -->
+                    <div class="flex items-center gap-2 bg-zinc-950/60 rounded-lg px-3 py-2 border border-zinc-800">
+                        <button id="vc-mute" onclick="window.vcToggleMute()"
+                            class="text-zinc-300 hover:text-white text-base shrink-0 w-7 text-center transition-colors" title="Mute / Unmute">🔊</button>
+                        <input type="range" id="vc-volume" min="0" max="1" step="0.02" value="1"
+                            class="flex-1 accent-blue-500 cursor-pointer"
+                            oninput="window.vcSetVolume(this.value)">
+                        <span id="vc-vol-pct" class="text-[10px] font-mono text-zinc-500 w-8 text-right shrink-0">100%</span>
                     </div>
                 </div>
+
             </div>
         </div>
     </div>
@@ -1379,6 +1435,9 @@
                     vid.style.width = '1920px'; vid.style.height = '1080px';
                     vid.draggable = false;
                     el.appendChild(vid);
+                    // Auto-activate the persistent Video Controller card
+                    const fileName = layer.src ? layer.src.split('/').pop().split('?')[0].substring(0, 25) : 'Video';
+                    setTimeout(() => window.vcActivate(id, fileName), 100);
                 } else if (layer.type === 'audio') {
                     const aud = document.createElement('audio');
                     aud.src = layer.src; aud.muted = true; // Kept muted in preview
@@ -1412,11 +1471,11 @@
                     el.appendChild(txt);
                 }
 
-                // Middle Drag handler
+                // Middle Drag handler — clicking the canvas layer ONLY moves it, does NOT open properties panel
                 el.addEventListener('mousedown', (e) => {
                     // Prevent trigger if a resize handle was clicked
                     if (e.target.classList.contains('resize-handle')) return;
-                    selectLayer(id);
+                    window.selectedLayerId = id;  // track selection for dragging only
                     startDrag(e, id);
                 });
             }
@@ -1488,6 +1547,15 @@
                 } else {
                     document.getElementById('prop-audio-controls').classList.add('hidden');
                 }
+
+                // Show Video Controller for video layers only
+                if (layer.type === 'video') {
+                    document.getElementById('prop-video-controls').classList.remove('hidden');
+                    window.setupVideoControllerUI(id);
+                } else {
+                    document.getElementById('prop-video-controls').classList.add('hidden');
+                    window._videoProgressInterval && clearInterval(window._videoProgressInterval);
+                }
             } else {
                 document.getElementById('properties-panel').classList.add('hidden');
             }
@@ -1530,6 +1598,232 @@
                 updateProps({ audio: { ...a, volume: parseFloat(e.target.value) } });
             });
         }
+
+        // ==========================================
+        // VIDEO CONTROLLER ENGINE (Controller-only)
+        // ==========================================
+        window.setupVideoControllerUI = function(layerId) {
+            // Clear any previous progress poll
+            if (window._videoProgressInterval) clearInterval(window._videoProgressInterval);
+            window._activeVideoLayerId = layerId;
+
+            const getMedia = () => {
+                const el = document.getElementById(`ctrl-${layerId}`);
+                return el ? el.querySelector('video') : null;
+            };
+
+            const fmt = (s) => {
+                if (!isFinite(s)) return '0:00';
+                const m = Math.floor(s / 60);
+                const sec = Math.floor(s % 60);
+                return `${m}:${sec.toString().padStart(2, '0')}`;
+            };
+
+            // Update UI to reflect current video state
+            const updateUI = () => {
+                const media = getMedia();
+                if (!media) return;
+                const pct = media.duration ? (media.currentTime / media.duration) * 100 : 0;
+                document.getElementById('prop-video-seek').value = pct;
+                document.getElementById('prop-video-current').innerText = fmt(media.currentTime);
+                document.getElementById('prop-video-duration').innerText = fmt(media.duration);
+                const ppBtn = document.getElementById('prop-video-playpause');
+                ppBtn.innerText = media.paused ? '▶ Play' : '⏸ Pause';
+                ppBtn.className = media.paused
+                    ? 'flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded text-sm font-bold transition-colors'
+                    : 'flex-1 bg-amber-600 hover:bg-amber-500 text-white py-2 rounded text-sm font-bold transition-colors';
+                const loopBtn = document.getElementById('prop-video-loop');
+                loopBtn.innerText = media.loop ? '🔁 Loop: ON' : '🔁 Loop: OFF';
+                loopBtn.className = media.loop
+                    ? 'flex-none bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded text-sm font-bold transition-colors border border-emerald-500'
+                    : 'flex-none bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded text-sm font-bold transition-colors border border-zinc-700';
+            };
+
+            // Poll every 250ms for live progress updates
+            window._videoProgressInterval = setInterval(() => {
+                if (window._activeVideoLayerId !== layerId) return;
+                updateUI();
+            }, 250);
+
+            updateUI(); // Run once immediately
+        };
+
+        window.toggleControllerVideo = function() {
+            const id = window._activeVideoLayerId;
+            if (!id) return;
+            const el = document.getElementById(`ctrl-${id}`);
+            const media = el ? el.querySelector('video') : null;
+            if (!media) return;
+            if (media.paused) {
+                media.play().catch(e => e);
+                broadcastData({ type: 'COMMAND', command: 'PLAY' });
+            } else {
+                media.pause();
+                broadcastData({ type: 'COMMAND', command: 'PAUSE' });
+            }
+        };
+
+        window.restartControllerVideo = function() {
+            const id = window._activeVideoLayerId;
+            if (!id) return;
+            const el = document.getElementById(`ctrl-${id}`);
+            const media = el ? el.querySelector('video') : null;
+            if (!media) return;
+            media.currentTime = 0;
+            media.play().catch(e => e);
+            broadcastData({ type: 'COMMAND', command: 'PLAY' });
+        };
+
+        window.seekControllerVideo = function(pct) {
+            const id = window._activeVideoLayerId;
+            if (!id) return;
+            const el = document.getElementById(`ctrl-${id}`);
+            const media = el ? el.querySelector('video') : null;
+            if (!media || !isFinite(media.duration)) return;
+            media.currentTime = (pct / 100) * media.duration;
+        };
+
+        window.toggleControllerLoop = function() {
+            const id = window._activeVideoLayerId;
+            if (!id) return;
+            const el = document.getElementById(`ctrl-${id}`);
+            const media = el ? el.querySelector('video') : null;
+            if (!media) return;
+            media.loop = !media.loop;
+            if (window.layers[id]) window.layers[id].loop = media.loop;
+        };
+
+        // ==========================================
+        // PERSISTENT VIDEO CONTROLLER CARD ENGINE
+        // ==========================================
+        window._vcLayerId = null;
+        window._vcPollInterval = null;
+
+        const vcFmt = (s) => {
+            if (!isFinite(s)) return '0:00';
+            const m = Math.floor(s / 60);
+            const sec = Math.floor(s % 60);
+            return `${m}:${sec.toString().padStart(2, '0')}`;
+        };
+
+        window.vcActivate = function(layerId, fileName) {
+            window._vcLayerId = layerId;
+            if (window._vcPollInterval) clearInterval(window._vcPollInterval);
+
+            const card = document.getElementById('video-ctrl-card');
+            card.classList.remove('hidden');
+            document.getElementById('vc-layer-name').innerText = fileName || 'Video';
+
+            window._vcPollInterval = setInterval(() => {
+                const el = document.getElementById(`ctrl-${window._vcLayerId}`);
+                const media = el ? el.querySelector('video') : null;
+                if (!media) return;
+
+                const pct = media.duration ? (media.currentTime / media.duration) * 100 : 0;
+                document.getElementById('vc-seek').value = pct;
+                document.getElementById('vc-current').innerText = vcFmt(media.currentTime);
+                document.getElementById('vc-duration').innerText = vcFmt(media.duration);
+
+                const ppBtn = document.getElementById('vc-playpause');
+                if (media.paused) {
+                    ppBtn.innerText = '▶ Play';
+                    ppBtn.className = 'flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm font-bold transition-colors';
+                } else {
+                    ppBtn.innerText = '⏸ Pause';
+                    ppBtn.className = 'flex-1 bg-amber-500 hover:bg-amber-400 text-white py-2 rounded-lg text-sm font-bold transition-colors';
+                }
+
+                const loopBtn = document.getElementById('vc-loop');
+                if (media.loop) {
+                    loopBtn.innerText = '🔁 ON';
+                    loopBtn.className = 'bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-bold transition-colors border border-emerald-500';
+                } else {
+                    loopBtn.innerText = '🔁 OFF';
+                    loopBtn.className = 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 px-3 py-2 rounded-lg text-sm font-bold transition-colors border border-zinc-700';
+                }
+            }, 250);
+        };
+
+        window.vcTogglePlay = function() {
+            const el = document.getElementById(`ctrl-${window._vcLayerId}`);
+            const media = el ? el.querySelector('video') : null;
+            if (!media) return;
+            if (media.paused) {
+                media.play().catch(e => e);
+                broadcastData({ type: 'COMMAND', command: 'PLAY' });
+            } else {
+                media.pause();
+                broadcastData({ type: 'COMMAND', command: 'PAUSE' });
+            }
+        };
+
+        window.vcRestart = function() {
+            const el = document.getElementById(`ctrl-${window._vcLayerId}`);
+            const media = el ? el.querySelector('video') : null;
+            if (!media) return;
+            media.currentTime = 0;
+            media.play().catch(e => e);
+            broadcastData({ type: 'COMMAND', command: 'PLAY' });
+        };
+
+        window.vcSeek = function(pct) {
+            const el = document.getElementById(`ctrl-${window._vcLayerId}`);
+            const media = el ? el.querySelector('video') : null;
+            if (!media || !isFinite(media.duration)) return;
+            media.currentTime = (pct / 100) * media.duration;
+        };
+
+        window.vcToggleLoop = function() {
+            const el = document.getElementById(`ctrl-${window._vcLayerId}`);
+            const media = el ? el.querySelector('video') : null;
+            if (!media) return;
+            media.loop = !media.loop;
+            if (window.layers[window._vcLayerId]) window.layers[window._vcLayerId].loop = media.loop;
+        };
+
+        window.vcSetVolume = function(val) {
+            const id = window._vcLayerId;
+            if (!id) return;
+            const vol = parseFloat(val);
+            // Unmute if user moves slider up from 0
+            if (vol > 0 && window._vcMuted) {
+                window._vcMuted = false;
+                document.getElementById('vc-mute').innerText = '🔊';
+            }
+            // Update percentage label
+            document.getElementById('vc-vol-pct').innerText = Math.round(vol * 100) + '%';
+            // Sync to layer state and broadcast to player
+            if (window.layers[id]) {
+                window.layers[id].audio = window.layers[id].audio || {};
+                window.layers[id].audio.volume = vol;
+                window.layers[id].audio.muted = (vol === 0);
+                broadcastData({ type: 'UPDATE_LAYER', id: id, changes: { audio: window.layers[id].audio } });
+            }
+        };
+
+        window.vcToggleMute = function() {
+            const id = window._vcLayerId;
+            if (!id) return;
+            window._vcMuted = !window._vcMuted;
+            const muteBtn = document.getElementById('vc-mute');
+            const volSlider = document.getElementById('vc-volume');
+            if (window._vcMuted) {
+                muteBtn.innerText = '🔇';
+                muteBtn.className = 'text-red-400 hover:text-red-300 text-base shrink-0 w-7 text-center transition-colors';
+                document.getElementById('vc-vol-pct').innerText = 'MUTE';
+            } else {
+                muteBtn.innerText = '🔊';
+                muteBtn.className = 'text-zinc-300 hover:text-white text-base shrink-0 w-7 text-center transition-colors';
+                const vol = parseFloat(volSlider.value);
+                document.getElementById('vc-vol-pct').innerText = Math.round(vol * 100) + '%';
+            }
+            // Broadcast mute state to player
+            if (window.layers[id]) {
+                window.layers[id].audio = window.layers[id].audio || {};
+                window.layers[id].audio.muted = window._vcMuted;
+                broadcastData({ type: 'UPDATE_LAYER', id: id, changes: { audio: window.layers[id].audio } });
+            }
+        };
 
         // --- Advanced Dragging & Zooming Engine ---
         let dragMode = null; // 'move' or 'resize'
