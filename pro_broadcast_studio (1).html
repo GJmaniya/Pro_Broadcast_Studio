@@ -891,8 +891,8 @@
                             delete parameters.encodings[0].minBitrate;
                         }
 
-                        // Force encoder to maintain visual clarity (drop frames instead of blurring if network struggles)
-                        parameters.degradationPreference = 'maintain-resolution';
+                        // Force encoder to try and maintain 18-30 FPS. 'balanced' degrades resolution slightly to protect framerate.
+                        parameters.degradationPreference = 'balanced';
                         
                         // Force 30fps max to stabilize the stream and prevent extreme drops
                         parameters.encodings[0].maxFramerate = 30;
@@ -970,8 +970,8 @@
                             delete parameters.encodings[0].minBitrate;
                         }
 
-                        // Force encoder to maintain visual clarity
-                        parameters.degradationPreference = 'maintain-resolution';
+                        // Force encoder to try and maintain 18-30 FPS.
+                        parameters.degradationPreference = 'balanced';
                         
                         // Force 30fps max to stabilize the stream and prevent extreme drops
                         parameters.encodings[0].maxFramerate = 30;
@@ -1324,6 +1324,9 @@
                             else if (media.mozCaptureStream) stream = media.mozCaptureStream(30);
 
                             if (stream) {
+                                // Tell WebRTC this is a high-motion video so it prioritizes keeping FPS above 18+
+                                stream.getVideoTracks().forEach(t => t.contentHint = 'motion');
+                                
                                 window.localStreams[layer.id] = stream;
                                 p2pConnections.forEach(conn => {
                                     const call = peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
