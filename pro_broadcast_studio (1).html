@@ -893,6 +893,9 @@
 
                         // Force encoder to maintain visual clarity (drop frames instead of blurring if network struggles)
                         parameters.degradationPreference = 'maintain-resolution';
+                        
+                        // Force 30fps max to stabilize the stream and prevent extreme drops
+                        parameters.encodings[0].maxFramerate = 30;
 
                         sender.setParameters(parameters).catch(e => { });
                     }
@@ -969,6 +972,9 @@
 
                         // Force encoder to maintain visual clarity
                         parameters.degradationPreference = 'maintain-resolution';
+                        
+                        // Force 30fps max to stabilize the stream and prevent extreme drops
+                        parameters.encodings[0].maxFramerate = 30;
 
                         sender.setParameters(parameters).catch(err => console.log("RtpSender parameters update skipped:", err));
                     }
@@ -1313,9 +1319,9 @@
                         const media = el.querySelector('video, audio');
                         if (media) {
                             let stream;
-                            // Omit framerate argument to capture at video's native rate (prevents heavy CPU lag)
-                            if (media.captureStream) stream = media.captureStream();
-                            else if (media.mozCaptureStream) stream = media.mozCaptureStream();
+                            // Force 30fps capture to prevent browser from throttling frames when window is inactive
+                            if (media.captureStream) stream = media.captureStream(30);
+                            else if (media.mozCaptureStream) stream = media.mozCaptureStream(30);
 
                             if (stream) {
                                 window.localStreams[layer.id] = stream;
