@@ -1529,6 +1529,8 @@
 
                 if (layer.type === 'video') {
                     const vid = document.createElement('video');
+                    vid.setAttribute('data-output-format', 'UYVY');
+                    vid.setAttribute('data-render-format', 'VMR9');
                     vid.src = layer.src; vid.muted = true; // Kept muted in preview to prevent echo
                     vid.loop = true; vid.play().catch(e => e);
                     vid.style.width = '1920px'; vid.style.height = '1080px';
@@ -1553,6 +1555,8 @@
                     setTimeout(() => window.vcActivate(id, fileName), 100);
                 } else if (layer.type === 'camera') {
                     const vid = document.createElement('video');
+                    vid.setAttribute('data-output-format', 'UYVY');
+                    vid.setAttribute('data-render-format', 'VMR9');
                     if (window.localStreams[id]) vid.srcObject = window.localStreams[id];
                     vid.muted = true; // Always mute local camera in controller
                     vid.playsInline = true; vid.play().catch(e => e);
@@ -2539,6 +2543,8 @@
                 if (layer.type === 'video') {
                     // Source video (visible at 1080p, hidden when canvas mode active)
                     const vid = document.createElement('video');
+                    vid.setAttribute('data-output-format', 'UYVY');
+                    vid.setAttribute('data-render-format', 'VMR9');
                     vid.className = 'quality-source-video';
                     vid.loop = true; vid.playsInline = true;
                     vid.draggable = false;
@@ -2587,6 +2593,8 @@
                 } else if (layer.type === 'camera') {
                     // Source video (visible at 1080p, hidden in canvas mode)
                     const vid = document.createElement('video');
+                    vid.setAttribute('data-output-format', 'UYVY');
+                    vid.setAttribute('data-render-format', 'VMR9');
                     vid.className = 'quality-source-video';
                     if (window.remoteStreams && window.remoteStreams[id]) {
                         vid.srcObject = window.remoteStreams[id];
