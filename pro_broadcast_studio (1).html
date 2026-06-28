@@ -962,9 +962,9 @@
                         // browser to DROP RESOLUTION before dropping frames.
                         // 'maintain-resolution' was causing 6-10 FPS by doing the opposite.
                         parameters.degradationPreference = 'maintain-framerate';
-
-                        // Hard-lock to 25 FPS
-                        parameters.encodings[0].maxFramerate = 25;
+ 
+                        // Hard-lock to 30 FPS
+                        parameters.encodings[0].maxFramerate = 30;
 
                         sender.setParameters(parameters).catch(e => { /* retry will handle it */ });
                     }
@@ -1054,8 +1054,8 @@
                         // FIX: 'maintain-framerate' = drop resolution before dropping frames
                         parameters.degradationPreference = 'maintain-framerate';
 
-                        // Hard-lock to 25 FPS
-                        parameters.encodings[0].maxFramerate = 25;
+                        // Hard-lock to 30 FPS
+                        parameters.encodings[0].maxFramerate = 30;
 
                         sender.setParameters(parameters).catch(err => { });
                     }
@@ -1331,9 +1331,9 @@
                 video: {
                     width: { ideal: 1920 },
                     height: { ideal: 1080 },
-                    // FIX: Lock camera to exactly 25 FPS to match encoder target.
-                    // A mismatch (30 vs 25) causes the encoder to drop every ~5th frame.
-                    frameRate: { ideal: 25, min: 25, max: 25 }
+                    // FIX: Lock camera to exactly 30 FPS to match encoder target.
+                    // A mismatch causes the encoder to drop frames.
+                    frameRate: { ideal: 30, min: 30, max: 30 }
                 },
                 audio: true
             }).then(stream => {
@@ -1458,17 +1458,17 @@
                                 if (window.localStreams[layer.id]) return;
                                 
                                 let stream;
-                                // Lock capture to exactly 25 FPS to match encoder target
-                                if (media.captureStream) stream = media.captureStream(25);
-                                else if (media.mozCaptureStream) stream = media.mozCaptureStream(25);
+                                // Lock capture to exactly 30 FPS to match encoder target
+                                if (media.captureStream) stream = media.captureStream(30);
+                                else if (media.mozCaptureStream) stream = media.mozCaptureStream(30);
 
                                 if (stream) {
                                     // Tell WebRTC this is high-motion video so it prioritizes FPS (smoothness) over crisp pixels
                                     stream.getVideoTracks().forEach(t => {
                                         t.contentHint = 'motion';
-                                        // Enforce an EXACT strict 25 FPS directly on the captured track
+                                        // Enforce an EXACT strict 30 FPS directly on the captured track
                                         if (t.applyConstraints) {
-                                            t.applyConstraints({ frameRate: { exact: 25 } }).catch(() => {});
+                                            t.applyConstraints({ frameRate: { exact: 30 } }).catch(() => {});
                                         }
                                     });
                                     
