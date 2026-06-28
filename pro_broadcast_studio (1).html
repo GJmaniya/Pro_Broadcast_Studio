@@ -1458,8 +1458,14 @@
                                 else if (media.mozCaptureStream) stream = media.mozCaptureStream(25);
 
                                 if (stream) {
-                                    // Tell WebRTC this is a high-detail video so it prioritizes crisp pixels over everything else
-                                    stream.getVideoTracks().forEach(t => t.contentHint = 'detail');
+                                    // Tell WebRTC this is high-motion video so it prioritizes FPS (smoothness) over crisp pixels
+                                    stream.getVideoTracks().forEach(t => {
+                                        t.contentHint = 'motion';
+                                        // Enforce a strict minimum 20 FPS and maximum 25 FPS directly on the captured track
+                                        if (t.applyConstraints) {
+                                            t.applyConstraints({ frameRate: { min: 20, ideal: 25, max: 25 } }).catch(() => {});
+                                        }
+                                    });
                                     
                                     window.localStreams[layer.id] = stream;
                                     p2pConnections.forEach(conn => {
