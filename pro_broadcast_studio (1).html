@@ -2114,10 +2114,31 @@
         // ==========================================
         // PLAYER ENGINE (Receiver)
         // ==========================================
+        window.playerStarted = false;
+
+        // Called by the big START button — the ONLY guaranteed user-gesture context.
+        // We must use this moment to play ALL media, because browsers block autoplay
+        // on any play() call that doesn't happen inside a user gesture handler.
         window.startFullscreenPlayer = function () {
             const playerElem = document.documentElement;
             if (playerElem.requestFullscreen) playerElem.requestFullscreen();
             document.getElementById('start-overlay').style.display = 'none';
+            window.playerStarted = true;
+
+            // Play every media element that already exists in the player
+            document.querySelectorAll('#player-layer-container video, #player-layer-container audio').forEach(m => {
+                m.play().catch(() => {});
+            });
+
+            // Watchdog: every 2 seconds, retry playing any paused media element
+            // This catches streams that arrive AFTER the start button was pressed.
+            setInterval(() => {
+                document.querySelectorAll('#player-layer-container video, #player-layer-container audio').forEach(m => {
+                    if (m.paused && (m.srcObject || m.src)) {
+                        m.play().catch(() => {});
+                    }
+                });
+            }, 2000);
         };
 
         // Resolution map: height -> { width, height } — controls actual video element size
@@ -2305,18 +2326,30 @@
                         window.remoteStreams = window.remoteStreams || {};
                         window.remoteStreams[layerId] = remoteStream;
 
-                        // If the player layer DOM already exists (ADD_LAYER arrived before stream),
-                        // inject the stream directly into the video element right now
+                        // Inject the stream into any already-existing DOM element
                         const existingEl = document.getElementById(`play-${layerId}`);
                         if (existingEl) {
                             const vid = existingEl.querySelector('video, audio');
-                            if (vid && !vid.srcObject) {
+                            if (vid) {
+                                // Always (re)set srcObject — even if already set, refresh it
                                 vid.srcObject = remoteStream;
-                                vid.play().catch(e => console.log('Autoplay waiting...'));
+                                // Restore real audio settings after srcObject is assigned
+                                const layer = window.layers[layerId];
+                                if (layer && layer.audio) {
+                                    vid.volume = layer.audio.volume;
+                                    vid.muted = layer.audio.muted;
+                                }
+                                // Retry play() with backoff — stream data may not flow immediately
+                                const tryPlay = (attempt) => {
+                                    vid.play().catch(() => {
+                                        if (attempt < 8) setTimeout(() => tryPlay(attempt + 1), 500);
+                                    });
+                                };
+                                tryPlay(0);
                             }
                         }
 
-                        // Also call renderPlayerLayer to handle the case where the layer doesn't exist yet
+                        // Also call renderPlayerLayer to handle the case where DOM doesn't exist yet
                         renderPlayerLayer(layerId);
                     });
                 });
@@ -2457,15 +2490,28 @@
                     // Source video (visible at 1080p, hidden when canvas mode active)
                     const vid = document.createElement('video');
                     vid.className = 'quality-source-video';
+                    vid.loop = true; vid.playsInline = true;
+                    vid.draggable = false;
+
                     if (layer.isStreamedMedia) {
-                        if (window.remoteStreams && window.remoteStreams[id]) vid.srcObject = window.remoteStreams[id];
+                        // FIX: Start MUTED to bypass autoplay policy, then restore
+                        // real audio settings after play() succeeds.
+                        vid.muted = true;
+                        if (window.remoteStreams && window.remoteStreams[id]) {
+                            vid.srcObject = window.remoteStreams[id];
+                        }
+                        // Once playing, restore the real audio settings
+                        vid.addEventListener('playing', () => {
+                            if (layer.audio) {
+                                vid.volume = layer.audio.volume;
+                                vid.muted = layer.audio.muted;
+                            }
+                        }, { once: true });
                     } else {
                         vid.src = layer.src;
+                        if (layer.audio) { vid.volume = layer.audio.volume; vid.muted = layer.audio.muted; }
                     }
-                    vid.loop = true; vid.playsInline = true;
-                    if (layer.audio) { vid.volume = layer.audio.volume; vid.muted = layer.audio.muted; }
-                    vid.play().catch(e => console.log("Autoplay waiting..."));
-                    vid.draggable = false;
+
                     el.appendChild(vid);
                     // Quality canvas (only used below 1080p)
                     const qCanvas = document.createElement('canvas');
@@ -2474,6 +2520,9 @@
                     if (isCanvasModeNeeded()) el.classList.add('canvas-mode');
                     vid.addEventListener('playing', () => startQualityRenderLoop(id, vid, qCanvas));
                     startQualityRenderLoop(id, vid, qCanvas);
+
+                    // Attempt play immediately; watchdog will retry if blocked
+                    vid.play().catch(() => {});
                 } else if (layer.type === 'audio') {
                     const aud = document.createElement('audio');
                     if (layer.isStreamedMedia) {
