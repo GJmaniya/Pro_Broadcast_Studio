@@ -1461,9 +1461,9 @@
                                     // Tell WebRTC this is high-motion video so it prioritizes FPS (smoothness) over crisp pixels
                                     stream.getVideoTracks().forEach(t => {
                                         t.contentHint = 'motion';
-                                        // Enforce a strict minimum 20 FPS and maximum 25 FPS directly on the captured track
+                                        // Enforce an EXACT strict 25 FPS directly on the captured track
                                         if (t.applyConstraints) {
-                                            t.applyConstraints({ frameRate: { min: 20, ideal: 25, max: 25 } }).catch(() => {});
+                                            t.applyConstraints({ frameRate: { exact: 25 } }).catch(() => {});
                                         }
                                     });
                                     
