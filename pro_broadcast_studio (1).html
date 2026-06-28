@@ -1194,25 +1194,6 @@
                 }
             });
 
-            // Auto-play & activate Video Controller for the #1 video layer
-            if (topLayer && topLayer.type === 'video') {
-                const topEl = document.getElementById(`ctrl-${topLayer.id}`);
-                const topVid = topEl ? topEl.querySelector('video') : null;
-                if (topVid) {
-                    // Auto-play the #1 video if it is paused
-                    if (topVid.paused) {
-                        topVid.play().catch(e => e);
-                    }
-                    // Switch the persistent Video Controller card to track this layer
-                    if (window._vcLayerId !== topLayer.id) {
-                        const fileName = topLayer.src
-                            ? topLayer.src.split('/').pop().split('?')[0].substring(0, 25)
-                            : 'Video';
-                        window.vcActivate(topLayer.id, fileName);
-                    }
-                }
-            }
-
             if (topLayer && badge && nameEl) {
                 // Build a display name for the badge
                 let displayName = topLayer.type.toUpperCase();
