@@ -904,24 +904,26 @@
             activeMediaCalls.push(call);
             call.on('close', () => {
                 activeMediaCalls = activeMediaCalls.filter(c => c !== call);
+                if (call._fpsEnforceInterval) clearInterval(call._fpsEnforceInterval);
             });
 
             const applyParams = () => {
                 const pc = call.peerConnection;
-                if (!pc) return;
+                if (!pc || pc.connectionState === 'closed') return;
 
                 pc.getSenders().forEach(sender => {
                     if (sender.track && sender.track.kind === 'video') {
                         const parameters = sender.getParameters();
-                        if (!parameters.encodings) parameters.encodings = [{}];
+                        if (!parameters.encodings || parameters.encodings.length === 0) {
+                            parameters.encodings = [{}];
+                        }
 
                         parameters.encodings[0].networkPriority = 'high';
                         parameters.encodings[0].priority = 'high';
 
-                        // Limit resolution and bitrate at the encoder side to ensure lag-free streaming
                         const res = RESOLUTIONS[window.lastSelectedQuality] || RESOLUTIONS[1080];
 
-                        // Extract real intrinsic height from the DOM element (track settings are often missing for captureStream)
+                        // Extract real intrinsic height from the DOM element
                         const layerId = call.metadata ? call.metadata.layerId : null;
                         let intrinsicHeight = 0;
                         if (layerId) {
@@ -933,46 +935,58 @@
                         const settings = sender.track.getSettings();
                         const nativeHeight = intrinsicHeight || settings.height || 1080;
                         const scale = nativeHeight / res.h;
-                        
-                        // Downscale before encoding to save CPU and maintain 30 FPS
                         parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
-                        
+
+                        // Set max bitrate per resolution
                         if (res.h >= 1080) {
-                            parameters.encodings[0].maxBitrate = 20000000; // 20 Mbps for pristine, pixel-free 1080p
-                        } else if (res.h === 720) {
-                            parameters.encodings[0].maxBitrate = 8000000; // 8 Mbps
-                        } else if (res.h === 480) {
-                            parameters.encodings[0].maxBitrate = 4000000; // 4 Mbps
+                            parameters.encodings[0].maxBitrate = 20000000;
+                        } else if (res.h >= 720) {
+                            parameters.encodings[0].maxBitrate = 8000000;
+                        } else if (res.h >= 480) {
+                            parameters.encodings[0].maxBitrate = 4000000;
                         } else {
-                            parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
+                            parameters.encodings[0].maxBitrate = 2000000;
                         }
 
-                        // Apply CBR or VBR settings
+                        // FIX: Always set a minBitrate floor (25% of max) so the encoder
+                        // never starves at low-motion scenes and always keeps 25 FPS pacing.
+                        parameters.encodings[0].minBitrate = Math.round(parameters.encodings[0].maxBitrate * 0.25);
+
                         const bitrateMode = document.getElementById('bitrate-mode') ? document.getElementById('bitrate-mode').value : 'vbr';
                         if (bitrateMode === 'cbr') {
-                            parameters.encodings[0].minBitrate = parameters.encodings[0].maxBitrate; // Force CBR
-                        } else {
-                            delete parameters.encodings[0].minBitrate;
+                            parameters.encodings[0].minBitrate = parameters.encodings[0].maxBitrate;
                         }
 
-                        // STRICT PRIORITY: Never blur, never pixelate. (Keeps 1080p sharp)
-                        parameters.degradationPreference = 'maintain-resolution';
-                        
-                        // Lock to exactly 25 FPS - mandatory minimum and maximum
+                        // FIX: 'maintain-framerate' is the correct value — it tells the
+                        // browser to DROP RESOLUTION before dropping frames.
+                        // 'maintain-resolution' was causing 6-10 FPS by doing the opposite.
+                        parameters.degradationPreference = 'maintain-framerate';
+
+                        // Hard-lock to 25 FPS
                         parameters.encodings[0].maxFramerate = 25;
 
-                        sender.setParameters(parameters).catch(e => { });
+                        sender.setParameters(parameters).catch(e => { /* retry will handle it */ });
                     }
                 });
             };
 
+            // FIX: Retry applyParams every 500ms until the PeerConnection is ready,
+            // then keep re-enforcing every 3s to prevent browser drift back to low FPS.
+            let attempts = 0;
             const checkPC = setInterval(() => {
                 if (call.peerConnection) {
                     clearInterval(checkPC);
-                    setTimeout(applyParams, 800);
+                    // Apply immediately, then retry a few times to ensure it sticks
+                    const retry = setInterval(() => {
+                        applyParams();
+                        attempts++;
+                        if (attempts >= 6) clearInterval(retry); // stop after ~3s
+                    }, 500);
+                    // After initial burst, enforce every 3s for the lifetime of the call
+                    call._fpsEnforceInterval = setInterval(applyParams, 3000);
                 }
             }, 100);
-            setTimeout(() => clearInterval(checkPC), 8000);
+            setTimeout(() => clearInterval(checkPC), 10000);
         }
 
         window.updateOutgoingStreamsQuality = function (height) {
@@ -1028,21 +1042,21 @@
                             parameters.encodings[0].maxBitrate = 2000000; // 2 Mbps
                         }
 
-                        // Apply CBR or VBR settings
+                        // Always set a minBitrate floor so the encoder never starves
+                        parameters.encodings[0].minBitrate = Math.round(parameters.encodings[0].maxBitrate * 0.25);
+
                         const bitrateMode = document.getElementById('bitrate-mode') ? document.getElementById('bitrate-mode').value : 'vbr';
                         if (bitrateMode === 'cbr') {
-                            parameters.encodings[0].minBitrate = parameters.encodings[0].maxBitrate; // Force CBR
-                        } else {
-                            delete parameters.encodings[0].minBitrate;
+                            parameters.encodings[0].minBitrate = parameters.encodings[0].maxBitrate;
                         }
 
-                        // STRICT PRIORITY: Never blur, never pixelate.
-                        parameters.degradationPreference = 'maintain-resolution';
-                        
-                        // Lock to exactly 25 FPS - mandatory minimum and maximum
+                        // FIX: 'maintain-framerate' = drop resolution before dropping frames
+                        parameters.degradationPreference = 'maintain-framerate';
+
+                        // Hard-lock to 25 FPS
                         parameters.encodings[0].maxFramerate = 25;
 
-                        sender.setParameters(parameters).catch(err => console.log("RtpSender parameters update skipped:", err));
+                        sender.setParameters(parameters).catch(err => { });
                     }
                 });
             });
@@ -1316,7 +1330,9 @@
                 video: {
                     width: { ideal: 1920 },
                     height: { ideal: 1080 },
-                    frameRate: { ideal: 30, max: 30 }
+                    // FIX: Lock camera to exactly 25 FPS to match encoder target.
+                    // A mismatch (30 vs 25) causes the encoder to drop every ~5th frame.
+                    frameRate: { ideal: 25, min: 25, max: 25 }
                 },
                 audio: true
             }).then(stream => {
