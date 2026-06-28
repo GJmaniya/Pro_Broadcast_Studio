@@ -937,20 +937,21 @@
                         const scale = nativeHeight / res.h;
                         parameters.encodings[0].scaleResolutionDownBy = Math.max(1, scale);
 
-                        // Set max bitrate per resolution
+                        // Set max bitrate per resolution to standard broadcast limits
+                        // Setting this too high (like 20Mbps) causes CPU encoding bottlenecks and network congestion!
                         if (res.h >= 1080) {
-                            parameters.encodings[0].maxBitrate = 20000000;
+                            parameters.encodings[0].maxBitrate = 6000000; // 6 Mbps
                         } else if (res.h >= 720) {
-                            parameters.encodings[0].maxBitrate = 8000000;
+                            parameters.encodings[0].maxBitrate = 3500000; // 3.5 Mbps
                         } else if (res.h >= 480) {
-                            parameters.encodings[0].maxBitrate = 4000000;
+                            parameters.encodings[0].maxBitrate = 1500000; // 1.5 Mbps
                         } else {
-                            parameters.encodings[0].maxBitrate = 2000000;
+                            parameters.encodings[0].maxBitrate = 400000;  // 400 Kbps
                         }
 
-                        // FIX: Always set a minBitrate floor (25% of max) so the encoder
-                        // never starves at low-motion scenes and always keeps 25 FPS pacing.
-                        parameters.encodings[0].minBitrate = Math.round(parameters.encodings[0].maxBitrate * 0.25);
+                        // FIX: 'Zoom Style' Degradation - Allow the bitrate to drop extremely low (100 Kbps)
+                        // This forces WebRTC to make the video blocky/blurry on bad networks INSTEAD of dropping frames.
+                        parameters.encodings[0].minBitrate = 100000;
 
                         const bitrateMode = document.getElementById('bitrate-mode') ? document.getElementById('bitrate-mode').value : 'vbr';
                         if (bitrateMode === 'cbr') {
@@ -1340,6 +1341,10 @@
                     id: 'layer_' + Date.now(), type: 'camera', x: 960, y: 540, scale: 1, zIndex: Date.now(),
                     audio: { volume: 1, muted: false }
                 };
+                
+                // Force Zoom-style FPS prioritization for webcam
+                stream.getVideoTracks().forEach(t => t.contentHint = 'motion');
+                
                 window.layers[layer.id] = layer;
                 window.localStreams[layer.id] = stream;
 
