@@ -1441,35 +1441,54 @@
                 renderControllerLayer(layer.id);
                 renderLayerStack();
 
-                // Wait briefly for the HTML element to render so we can capture its stream
-                setTimeout(() => {
+                // Wait for the HTML element to render and the media to be ready to play
+                // Calling captureStream BEFORE the media is loaded creates a permanently dead stream in Chrome.
+                const startStreaming = () => {
                     const el = document.getElementById(`ctrl-${layer.id}`);
                     if (el) {
                         const media = el.querySelector('video, audio');
                         if (media) {
-                            let stream;
-                            // Lock capture to exactly 25 FPS to match encoder target
-                            if (media.captureStream) stream = media.captureStream(25);
-                            else if (media.mozCaptureStream) stream = media.mozCaptureStream(25);
-
-                            if (stream) {
-                                // Tell WebRTC this is a high-detail video so it prioritizes crisp pixels over everything else
-                                stream.getVideoTracks().forEach(t => t.contentHint = 'detail');
+                            const initStream = () => {
+                                // Prevent double initialization
+                                if (window.localStreams[layer.id]) return;
                                 
-                                window.localStreams[layer.id] = stream;
-                                p2pConnections.forEach(conn => {
-                                    const call = peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
-                                    registerMediaCall(call);
-                                });
+                                let stream;
+                                // Lock capture to exactly 25 FPS to match encoder target
+                                if (media.captureStream) stream = media.captureStream(25);
+                                else if (media.mozCaptureStream) stream = media.mozCaptureStream(25);
+
+                                if (stream) {
+                                    // Tell WebRTC this is a high-detail video so it prioritizes crisp pixels over everything else
+                                    stream.getVideoTracks().forEach(t => t.contentHint = 'detail');
+                                    
+                                    window.localStreams[layer.id] = stream;
+                                    p2pConnections.forEach(conn => {
+                                        const call = peer.call(conn.peer, stream, { metadata: { layerId: layer.id } });
+                                        registerMediaCall(call);
+                                    });
+                                }
+
+                                // Broadcast layer instruction to remote player (without the local URL)
+                                const remoteLayer = { ...layer };
+                                delete remoteLayer.src;
+                                broadcastData({ type: 'ADD_LAYER', layer: remoteLayer });
+                            };
+
+                            // If media is already ready (readyState >= 3: HAVE_FUTURE_DATA)
+                            if (media.readyState >= 3) {
+                                initStream();
+                            } else {
+                                // Wait for it to have enough data to play
+                                media.addEventListener('canplay', initStream, { once: true });
+                                // Fallback just in case
+                                setTimeout(initStream, 2000);
                             }
                         }
                     }
+                };
 
-                    // Broadcast layer instruction to remote player (without the local URL)
-                    const remoteLayer = { ...layer };
-                    delete remoteLayer.src;
-                    broadcastData({ type: 'ADD_LAYER', layer: remoteLayer });
-                }, 500);
+                // Give the DOM a tiny tick to insert the element before querying it
+                setTimeout(startStreaming, 100);
             }
         }
 
@@ -2333,18 +2352,24 @@
                             if (vid) {
                                 // Always (re)set srcObject — even if already set, refresh it
                                 vid.srcObject = remoteStream;
-                                // Restore real audio settings after srcObject is assigned
-                                const layer = window.layers[layerId];
-                                if (layer && layer.audio) {
-                                    vid.volume = layer.audio.volume;
-                                    vid.muted = layer.audio.muted;
-                                }
+                                // FIX: Keep muted to bypass autoplay policy, restore later
+                                vid.muted = true;
+                                
                                 // Retry play() with backoff — stream data may not flow immediately
                                 const tryPlay = (attempt) => {
                                     vid.play().catch(() => {
                                         if (attempt < 8) setTimeout(() => tryPlay(attempt + 1), 500);
                                     });
                                 };
+                                
+                                vid.addEventListener('playing', () => {
+                                    const layer = window.layers[layerId];
+                                    if (layer && layer.audio) {
+                                        vid.volume = layer.audio.volume;
+                                        vid.muted = layer.audio.muted;
+                                    }
+                                }, { once: true });
+
                                 tryPlay(0);
                             }
                         }
