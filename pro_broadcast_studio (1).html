@@ -1537,7 +1537,15 @@
                     aud.src = layer.src; aud.muted = true; // Kept muted in preview
                     aud.loop = true; aud.play().catch(e => e);
                     el.appendChild(aud);
-                    el.innerHTML += `<div class="bg-blue-600/80 p-8 rounded-full shadow-lg border-2 border-blue-400 text-white font-bold tracking-widest text-4xl pointer-events-none select-none">🎵 AUDIO SOURCE</div>`;
+                    
+                    const placeholder = document.createElement('div');
+                    placeholder.className = "absolute inset-0 flex items-center justify-center";
+                    placeholder.innerHTML = `<div class="bg-blue-600/80 p-8 rounded-full shadow-lg border-2 border-blue-400 text-white font-bold tracking-widest text-4xl pointer-events-none select-none">🎵 AUDIO SOURCE</div>`;
+                    el.appendChild(placeholder);
+                    
+                    // Auto-activate the persistent Video Controller card for audio too
+                    const fileName = layer.src ? layer.src.split('/').pop().split('?')[0].substring(0, 25) : 'Audio';
+                    setTimeout(() => window.vcActivate(id, fileName), 100);
                 } else if (layer.type === 'camera') {
                     const vid = document.createElement('video');
                     if (window.localStreams[id]) vid.srcObject = window.localStreams[id];
@@ -1642,8 +1650,8 @@
                     document.getElementById('prop-audio-controls').classList.add('hidden');
                 }
 
-                // Show Video Controller for video layers only
-                if (layer.type === 'video') {
+                // Show Video Controller for video and audio layers
+                if (layer.type === 'video' || layer.type === 'audio') {
                     document.getElementById('prop-video-controls').classList.remove('hidden');
                     window.setupVideoControllerUI(id);
                 } else {
@@ -1701,31 +1709,30 @@
             if (window._videoProgressInterval) clearInterval(window._videoProgressInterval);
             window._activeVideoLayerId = layerId;
 
-            const getMedia = () => {
-                const el = document.getElementById(`ctrl-${layerId}`);
-                return el ? el.querySelector('video') : null;
-            };
-
-            const fmt = (s) => {
-                if (!isFinite(s)) return '0:00';
-                const m = Math.floor(s / 60);
-                const sec = Math.floor(s % 60);
-                return `${m}:${sec.toString().padStart(2, '0')}`;
-            };
-
-            // Update UI to reflect current video state
             const updateUI = () => {
-                const media = getMedia();
+                const el = document.getElementById(`ctrl-${layerId}`);
+                const media = el ? el.querySelector('video, audio') : null;
                 if (!media) return;
+
                 const pct = media.duration ? (media.currentTime / media.duration) * 100 : 0;
                 document.getElementById('prop-video-seek').value = pct;
+                
+                const fmt = (s) => {
+                    if (!isFinite(s)) return '0:00';
+                    const m = Math.floor(s / 60);
+                    const sec = Math.floor(s % 60);
+                    return `${m}:${sec.toString().padStart(2, '0')}`;
+                };
+                
                 document.getElementById('prop-video-current').innerText = fmt(media.currentTime);
                 document.getElementById('prop-video-duration').innerText = fmt(media.duration);
-                const ppBtn = document.getElementById('prop-video-playpause');
-                ppBtn.innerText = media.paused ? '▶ Play' : '⏸ Pause';
-                ppBtn.className = media.paused
+
+                const playBtn = document.getElementById('prop-video-playpause');
+                playBtn.innerText = media.paused ? '▶ Play' : '⏸ Pause';
+                playBtn.className = media.paused
                     ? 'flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded text-sm font-bold transition-colors'
-                    : 'flex-1 bg-amber-600 hover:bg-amber-500 text-white py-2 rounded text-sm font-bold transition-colors';
+                    : 'flex-1 bg-amber-500 hover:bg-amber-400 text-black py-2 rounded text-sm font-bold transition-colors';
+
                 const loopBtn = document.getElementById('prop-video-loop');
                 loopBtn.innerText = media.loop ? '🔁 Loop: ON' : '🔁 Loop: OFF';
                 loopBtn.className = media.loop
@@ -1746,7 +1753,7 @@
             const id = window._activeVideoLayerId;
             if (!id) return;
             const el = document.getElementById(`ctrl-${id}`);
-            const media = el ? el.querySelector('video') : null;
+            const media = el ? el.querySelector('video, audio') : null;
             if (!media) return;
             if (media.paused) {
                 media.play().catch(e => e);
@@ -1761,7 +1768,7 @@
             const id = window._activeVideoLayerId;
             if (!id) return;
             const el = document.getElementById(`ctrl-${id}`);
-            const media = el ? el.querySelector('video') : null;
+            const media = el ? el.querySelector('video, audio') : null;
             if (!media) return;
             media.currentTime = 0;
             media.play().catch(e => e);
@@ -1772,7 +1779,7 @@
             const id = window._activeVideoLayerId;
             if (!id) return;
             const el = document.getElementById(`ctrl-${id}`);
-            const media = el ? el.querySelector('video') : null;
+            const media = el ? el.querySelector('video, audio') : null;
             if (!media || !isFinite(media.duration)) return;
             media.currentTime = (pct / 100) * media.duration;
         };
@@ -1781,7 +1788,7 @@
             const id = window._activeVideoLayerId;
             if (!id) return;
             const el = document.getElementById(`ctrl-${id}`);
-            const media = el ? el.querySelector('video') : null;
+            const media = el ? el.querySelector('video, audio') : null;
             if (!media) return;
             media.loop = !media.loop;
             if (window.layers[id]) window.layers[id].loop = media.loop;
@@ -1806,11 +1813,11 @@
 
             const card = document.getElementById('video-ctrl-card');
             card.classList.remove('hidden');
-            document.getElementById('vc-layer-name').innerText = fileName || 'Video';
+            document.getElementById('vc-layer-name').innerText = fileName || 'Media';
 
             window._vcPollInterval = setInterval(() => {
                 const el = document.getElementById(`ctrl-${window._vcLayerId}`);
-                const media = el ? el.querySelector('video') : null;
+                const media = el ? el.querySelector('video, audio') : null;
                 if (!media) return;
 
                 const pct = media.duration ? (media.currentTime / media.duration) * 100 : 0;
@@ -1818,32 +1825,36 @@
                 document.getElementById('vc-current').innerText = vcFmt(media.currentTime);
                 document.getElementById('vc-duration').innerText = vcFmt(media.duration);
 
-                const ppBtn = document.getElementById('vc-playpause');
+                const pBtn = document.getElementById('vc-playpause');
+                pBtn.innerText = media.paused ? '▶ Play' : '⏸ Pause';
                 if (media.paused) {
-                    ppBtn.innerText = '▶ Play';
-                    ppBtn.className = 'flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm font-bold transition-colors';
+                    pBtn.classList.remove('bg-amber-500', 'hover:bg-amber-400', 'text-black');
+                    pBtn.classList.add('bg-blue-600', 'hover:bg-blue-500', 'text-white');
                 } else {
-                    ppBtn.innerText = '⏸ Pause';
-                    ppBtn.className = 'flex-1 bg-amber-500 hover:bg-amber-400 text-white py-2 rounded-lg text-sm font-bold transition-colors';
+                    pBtn.classList.remove('bg-blue-600', 'hover:bg-blue-500', 'text-white');
+                    pBtn.classList.add('bg-amber-500', 'hover:bg-amber-400', 'text-black');
                 }
 
-                const loopBtn = document.getElementById('vc-loop');
+                const lBtn = document.getElementById('vc-loop');
                 if (media.loop) {
-                    loopBtn.innerText = '🔁 ON';
-                    loopBtn.className = 'bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-bold transition-colors border border-emerald-500';
+                    lBtn.innerText = '🔁 ON';
+                    lBtn.classList.remove('bg-zinc-800', 'text-zinc-400', 'border-zinc-700');
+                    lBtn.classList.add('bg-emerald-900', 'text-emerald-400', 'border-emerald-700');
                 } else {
-                    loopBtn.innerText = '🔁 OFF';
-                    loopBtn.className = 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 px-3 py-2 rounded-lg text-sm font-bold transition-colors border border-zinc-700';
+                    lBtn.innerText = '🔁 OFF';
+                    lBtn.classList.add('bg-zinc-800', 'text-zinc-400', 'border-zinc-700');
+                    lBtn.classList.remove('bg-emerald-900', 'text-emerald-400', 'border-emerald-700');
                 }
             }, 250);
         };
 
         window.vcTogglePlay = function() {
+            if (!window._vcLayerId) return;
             const el = document.getElementById(`ctrl-${window._vcLayerId}`);
-            const media = el ? el.querySelector('video') : null;
+            const media = el ? el.querySelector('video, audio') : null;
             if (!media) return;
             if (media.paused) {
-                media.play().catch(e => e);
+                media.play().catch(e=>e);
                 broadcastData({ type: 'COMMAND', command: 'PLAY' });
             } else {
                 media.pause();
@@ -1852,24 +1863,27 @@
         };
 
         window.vcRestart = function() {
+            if (!window._vcLayerId) return;
             const el = document.getElementById(`ctrl-${window._vcLayerId}`);
-            const media = el ? el.querySelector('video') : null;
+            const media = el ? el.querySelector('video, audio') : null;
             if (!media) return;
             media.currentTime = 0;
-            media.play().catch(e => e);
+            media.play().catch(e=>e);
             broadcastData({ type: 'COMMAND', command: 'PLAY' });
         };
 
         window.vcSeek = function(pct) {
+            if (!window._vcLayerId) return;
             const el = document.getElementById(`ctrl-${window._vcLayerId}`);
-            const media = el ? el.querySelector('video') : null;
+            const media = el ? el.querySelector('video, audio') : null;
             if (!media || !isFinite(media.duration)) return;
             media.currentTime = (pct / 100) * media.duration;
         };
 
         window.vcToggleLoop = function() {
+            if (!window._vcLayerId) return;
             const el = document.getElementById(`ctrl-${window._vcLayerId}`);
-            const media = el ? el.querySelector('video') : null;
+            const media = el ? el.querySelector('video, audio') : null;
             if (!media) return;
             media.loop = !media.loop;
             if (window.layers[window._vcLayerId]) window.layers[window._vcLayerId].loop = media.loop;
