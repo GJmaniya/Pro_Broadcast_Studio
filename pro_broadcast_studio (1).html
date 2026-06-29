@@ -1197,10 +1197,19 @@
             const badge = document.getElementById('program-on-air');
             const nameEl = document.getElementById('program-layer-name');
 
-            // Update all canvas layer elements: only #1 is visible, rest are hidden
+            let topSolidZ = -1;
+            for (let l of sorted) {
+                if (l.type === 'video' || l.type === 'camera') {
+                    topSolidZ = l.zIndex;
+                    break;
+                }
+            }
+
+            // Update all canvas layer elements: overlays above the top solid video remain visible
             document.querySelectorAll('#controller-preview-canvas .layer-element').forEach(el => {
                 const layerId = el.id.replace('ctrl-', '');
-                if (topLayer && layerId === topLayer.id) {
+                const layer = window.layers[layerId];
+                if (layer && layer.zIndex >= topSolidZ) {
                     el.style.visibility = 'visible';
                     el.style.opacity = '1';
                 } else {
@@ -1225,8 +1234,9 @@
             }
 
             // Auto-Play #1 Video and Auto-Pause background videos (Broadcast Switcher Logic)
-            if (topLayer && window._lastTopLayerId !== topLayer.id) {
-                window._lastTopLayerId = topLayer.id;
+            const topSolidLayer = sorted.find(l => l.type === 'video' || l.type === 'camera');
+            if (topSolidLayer && window._lastTopLayerId !== topSolidLayer.id) {
+                window._lastTopLayerId = topSolidLayer.id;
 
                 document.querySelectorAll('#controller-preview-canvas .layer-element').forEach(el => {
                     const layerId = el.id.replace('ctrl-', '');
@@ -1236,7 +1246,7 @@
                     const media = el.querySelector('video, audio');
                     if (!media) return;
                     
-                    if (layerId === topLayer.id) {
+                    if (layerId === topSolidLayer.id) {
                         // Play the new #1 video
                         if (media.paused) media.play().catch(e=>e);
                         
@@ -1249,7 +1259,7 @@
                         if (!media.paused) media.pause();
                     }
                 });
-            } else if (!topLayer) {
+            } else if (!topSolidLayer) {
                 window._lastTopLayerId = null;
             }
         }
@@ -2700,11 +2710,18 @@
 
         function updatePlayerVisibility() {
             const sorted = Object.values(window.layers).sort((a, b) => b.zIndex - a.zIndex);
-            const topLayer = sorted[0] || null;
+            let topSolidZ = -1;
+            for (let l of sorted) {
+                if (l.type === 'video' || l.type === 'camera') {
+                    topSolidZ = l.zIndex;
+                    break;
+                }
+            }
 
             document.querySelectorAll('#player-layer-container .layer-element').forEach(el => {
                 const layerId = el.id.replace('play-', '');
-                if (topLayer && layerId === topLayer.id) {
+                const layer = window.layers[layerId];
+                if (layer && layer.zIndex >= topSolidZ) {
                     el.style.visibility = 'visible';
                     el.style.opacity = '1';
                 } else {
