@@ -38,16 +38,16 @@ app.post('/convert', upload.single('video'), (req, res) => {
         .outputOptions([
             '-profile:v main',      // H.264 Main Profile
             '-pix_fmt yuv420p',     // YUV420p Pixel Format
-            '-preset fast'          // Encoding speed preset
+            '-preset fast',         // Encoding speed preset
+            '-crf 18',              // Visually lossless 1080p clarity
+            '-maxrate 12M',         // Ensure extremely high bitrate limits for 1080p
+            '-bufsize 24M'          // Required when using maxrate
         ])
         .fps(30)                    // Strictly 30 FPS
-
         // Audio Settings
         .audioCodec('aac')          // AAC Audio
-
         // Output Format
         .format('mp4')              // Container: .mp4
-
         // Events
         .on('progress', (progress) => {
             if (progress.percent) {
