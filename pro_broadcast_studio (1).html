@@ -37,10 +37,9 @@
 
         /* Quality rendering: toggle between direct video and canvas modes */
         .quality-source-video {
-            max-width: 1920px;
-            max-height: 1080px;
-            width: auto;
-            height: auto;
+            width: 1920px;
+            height: 1080px;
+            object-fit: contain;
             pointer-events: none;
         }
 
@@ -54,10 +53,9 @@
         }
 
         .quality-canvas {
-            max-width: 1920px;
-            max-height: 1080px;
-            width: auto;
-            height: auto;
+            width: 1920px;
+            height: 1080px;
+            object-fit: contain;
             pointer-events: none;
             display: none;
         }
@@ -1579,8 +1577,7 @@
                     vid.setAttribute('data-render-format', 'VMR9');
                     vid.src = layer.src; vid.muted = true; // Kept muted in preview to prevent echo
                     vid.loop = true; vid.play().catch(e => e);
-                    vid.style.maxWidth = '1920px'; vid.style.maxHeight = '1080px';
-                    vid.style.width = 'auto'; vid.style.height = 'auto';
+                    vid.style.width = '1920px'; vid.style.height = '1080px';
                     vid.draggable = false;
                     el.appendChild(vid);
                     // Auto-activate the persistent Video Controller card
@@ -1607,23 +1604,19 @@
                     if (window.localStreams[id]) vid.srcObject = window.localStreams[id];
                     vid.muted = true; // Always mute local camera in controller
                     vid.playsInline = true; vid.play().catch(e => e);
-                    vid.style.maxWidth = '1920px'; vid.style.maxHeight = '1080px';
-                    vid.style.width = 'auto'; vid.style.height = 'auto';
+                    vid.style.width = '1920px'; vid.style.height = '1080px';
                     vid.draggable = false;
                     el.appendChild(vid);
                 } else if (layer.type === 'iframe') {
                     const frame = document.createElement('iframe');
                     frame.src = layer.src; frame.frameBorder = "0";
-                    frame.style.maxWidth = '1920px'; frame.style.maxHeight = '1080px';
-                    frame.style.width = 'auto'; frame.style.height = 'auto';
+                    frame.style.width = '1920px'; frame.style.height = '1080px';
                     el.appendChild(frame);
                 } else if (layer.type === 'image') {
                     const img = document.createElement('img');
                     img.src = layer.src;
-                    img.style.maxWidth = '1920px';
-                    img.style.maxHeight = '1080px';
-                    img.style.width = 'auto';
-                    img.style.height = 'auto';
+                    img.style.width = '1920px';
+                    img.style.height = '1080px';
                     img.style.objectFit = 'contain';
                     img.draggable = false;
                     el.appendChild(img);
@@ -2669,16 +2662,13 @@
                     const frame = document.createElement('iframe');
                     frame.src = layer.src; frame.frameBorder = "0";
                     frame.allow = "autoplay; fullscreen";
-                    frame.style.maxWidth = '1920px'; frame.style.maxHeight = '1080px';
-                    frame.style.width = 'auto'; frame.style.height = 'auto';
+                    frame.style.width = '1920px'; frame.style.height = '1080px';
                     el.appendChild(frame);
                 } else if (layer.type === 'image') {
                     const img = document.createElement('img');
                     img.src = layer.src;
-                    img.style.maxWidth = '1920px';
-                    img.style.maxHeight = '1080px';
-                    img.style.width = 'auto';
-                    img.style.height = 'auto';
+                    img.style.width = '1920px';
+                    img.style.height = '1080px';
                     img.style.objectFit = 'contain';
                     img.draggable = false;
                     el.appendChild(img);
