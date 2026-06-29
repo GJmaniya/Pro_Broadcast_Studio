@@ -29,7 +29,7 @@
 
         .fixed-canvas {
             width: 1920px;
-            height: 1080px; 
+            height: 1080px;
             position: absolute;
             transform-origin: top left;
             overflow: hidden;
@@ -39,7 +39,6 @@
         .quality-source-video {
             width: 1920px;
             height: 1080px;
-            object-fit: contain;
             pointer-events: none;
         }
 
@@ -55,7 +54,6 @@
         .quality-canvas {
             width: 1920px;
             height: 1080px;
-            object-fit: contain;
             pointer-events: none;
             display: none;
         }
@@ -66,7 +64,7 @@
 
         #player-canvas {
             box-shadow: 0 0 100px rgba(0, 0, 0, 0.9);
-            background-color: transparent;
+            background-color: #000;
         }
 
         #player-wrapper {
@@ -75,7 +73,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background-color: transparent;
+            background-color: #000;
             overflow: hidden;
             position: relative;
         }
@@ -514,11 +512,6 @@
                             <input type="range" id="prop-scale" min="0.05" max="5" step="0.05"
                                 class="w-full accent-blue-500">
                         </div>
-                        <div class="mt-4">
-                            <label class="block text-xs font-medium text-zinc-400 mb-2">Opacity / Alpha Overlay</label>
-                            <input type="range" id="prop-opacity" min="0" max="1" step="0.05" value="1"
-                                class="w-full accent-blue-500">
-                        </div>
 
                         <div class="grid grid-cols-2 gap-4">
                             <div>
@@ -786,7 +779,6 @@
             document.getElementById('landing-view').style.display = 'none';
             document.getElementById('player-view').style.display = 'none';
             document.getElementById('controller-view').style.display = 'none';
-            document.body.style.backgroundColor = '#09090b'; // Default background
 
             // Show warning if running as local file
             if (window.location.protocol === 'file:') {
@@ -804,7 +796,6 @@
 
             if (hash.startsWith('#player')) {
                 document.getElementById('player-view').style.display = 'block';
-                document.body.style.backgroundColor = 'transparent'; // Transparent for OBS overlay
                 initPlayer();
             } else if (hash.startsWith('#controller')) {
                 document.getElementById('controller-view').style.display = 'flex';
@@ -1081,11 +1072,6 @@
             setupPropertiesPanelListeners();
             setupDragAndDrop();
 
-            // Prevent "Controller open elsewhere" by explicitly destroying connection when closed/reloaded
-            window.addEventListener('beforeunload', () => {
-                if (peer) peer.destroy();
-            });
-
             peer = new Peer('studio-host-' + currentRoomId, peerConfig);
 
             peer.on('open', (id) => {
@@ -1216,8 +1202,7 @@
                 const layerId = el.id.replace('ctrl-', '');
                 if (topLayer && layerId === topLayer.id) {
                     el.style.visibility = 'visible';
-                    const layer = window.layers[layerId];
-                    el.style.opacity = layer && layer.opacity !== undefined ? layer.opacity : '1';
+                    el.style.opacity = '1';
                 } else {
                     el.style.visibility = 'hidden';
                     el.style.opacity = '0';
@@ -1286,7 +1271,9 @@
             sortedLayers.forEach(layer => {
                 const item = document.createElement('div');
                 const isSelected = window.selectedLayerId === layer.id;
-                
+                const rank = sortedLayers.indexOf(layer) + 1;
+                const isTop = rank === 1;
+
                 item.className = `layer-stack-item ${isSelected ? 'selected' : ''}`;
                 item.onclick = () => selectLayer(layer.id);
 
@@ -1297,12 +1284,15 @@
 
                 item.innerHTML = `
                     <div class="flex items-center gap-3 overflow-hidden">
-                        <span class="text-[10px] font-mono bg-zinc-800 text-zinc-400 px-2 py-1 rounded shadow-inner">Z: ${layer.zIndex}</span>
-                        <span class="text-xs font-medium text-zinc-200 truncate">${name}</span>
+                        <span class="text-[10px] font-mono px-2 py-1 rounded shadow-inner ${isTop
+                            ? 'bg-red-600/30 text-red-300 border border-red-500/40'
+                            : 'bg-zinc-800 text-zinc-400'
+                        }">${isTop ? '🔴 #1' : '#' + rank}</span>
+                        <span class="text-xs font-medium ${isTop ? 'text-white' : 'text-zinc-200'} truncate">${name}</span>
                     </div>
                     <div class="flex items-center gap-1">
-                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', 'up')" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Up">🔼</button>
-                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', 'down')" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Down">🔽</button>
+                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', 'up')" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Move Up">🔼</button>
+                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', 'down')" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Move Down">🔽</button>
                         <button onclick="event.stopPropagation(); deleteSpecificLayer('${layer.id}')" class="p-1 text-red-400 hover:bg-red-900/50 rounded ml-2 text-xs" title="Delete">🗑️</button>
                     </div>
                 `;
@@ -1635,7 +1625,6 @@
             el.style.top = `${layer.y}px`;
             el.style.transform = `translate(-50%, -50%) scale(${layer.scale})`;
             el.style.zIndex = layer.zIndex;
-            el.style.opacity = layer.opacity !== undefined ? layer.opacity : 1;
 
             if (layer.type === 'text') {
                 const txtNode = el.querySelector('.text-layer');
@@ -1677,7 +1666,6 @@
                 document.getElementById(`ctrl-${id}`).classList.add('selected');
                 document.getElementById('properties-panel').classList.remove('hidden');
                 document.getElementById('prop-scale').value = layer.scale.toFixed(2);
-                document.getElementById('prop-opacity').value = layer.opacity !== undefined ? layer.opacity : 1;
                 document.getElementById('prop-x').value = Math.round(layer.x);
                 document.getElementById('prop-y').value = Math.round(layer.y);
 
@@ -1724,7 +1712,6 @@
             };
 
             document.getElementById('prop-scale').addEventListener('input', (e) => updateProps({ scale: parseFloat(e.target.value) }));
-            document.getElementById('prop-opacity').addEventListener('input', (e) => updateProps({ opacity: parseFloat(e.target.value) }));
             document.getElementById('prop-x').addEventListener('input', (e) => updateProps({ x: parseInt(e.target.value) || 0 }));
             document.getElementById('prop-y').addEventListener('input', (e) => updateProps({ y: parseInt(e.target.value) || 0 }));
 
@@ -2679,7 +2666,6 @@
             el.style.top = `${layer.y}px`;
             el.style.transform = `translate(-50%, -50%) scale(${layer.scale})`;
             if (layer.zIndex !== undefined) el.style.zIndex = layer.zIndex;
-            el.style.opacity = layer.opacity !== undefined ? layer.opacity : 1;
 
             if (layer.type === 'text') {
                 const txtNode = el.querySelector('.text-layer');
@@ -2720,8 +2706,7 @@
                 const layerId = el.id.replace('play-', '');
                 if (topLayer && layerId === topLayer.id) {
                     el.style.visibility = 'visible';
-                    const layer = window.layers[layerId];
-                    el.style.opacity = layer && layer.opacity !== undefined ? layer.opacity : '1';
+                    el.style.opacity = '1';
                 } else {
                     el.style.visibility = 'hidden';
                     el.style.opacity = '0';
