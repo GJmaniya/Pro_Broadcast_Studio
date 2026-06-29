@@ -1286,9 +1286,7 @@
             sortedLayers.forEach(layer => {
                 const item = document.createElement('div');
                 const isSelected = window.selectedLayerId === layer.id;
-                const rank = sortedLayers.indexOf(layer) + 1;
-                const isTop = rank === 1;
-
+                
                 item.className = `layer-stack-item ${isSelected ? 'selected' : ''}`;
                 item.onclick = () => selectLayer(layer.id);
 
@@ -1299,15 +1297,12 @@
 
                 item.innerHTML = `
                     <div class="flex items-center gap-3 overflow-hidden">
-                        <span class="text-[10px] font-mono px-2 py-1 rounded shadow-inner ${isTop
-                            ? 'bg-red-600/30 text-red-300 border border-red-500/40'
-                            : 'bg-zinc-800 text-zinc-400'
-                        }">${isTop ? '🔴 #1' : '#' + rank}</span>
-                        <span class="text-xs font-medium ${isTop ? 'text-white' : 'text-zinc-200'} truncate">${name}</span>
+                        <span class="text-[10px] font-mono bg-zinc-800 text-zinc-400 px-2 py-1 rounded shadow-inner">Z: ${layer.zIndex}</span>
+                        <span class="text-xs font-medium text-zinc-200 truncate">${name}</span>
                     </div>
                     <div class="flex items-center gap-1">
-                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', 'up')" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Move Up">🔼</button>
-                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', 'down')" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Move Down">🔽</button>
+                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', 'up')" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Up">🔼</button>
+                        <button onclick="event.stopPropagation(); changeLayerZSpecific('${layer.id}', 'down')" class="p-1 hover:bg-zinc-700 rounded text-xs" title="Down">🔽</button>
                         <button onclick="event.stopPropagation(); deleteSpecificLayer('${layer.id}')" class="p-1 text-red-400 hover:bg-red-900/50 rounded ml-2 text-xs" title="Delete">🗑️</button>
                     </div>
                 `;
