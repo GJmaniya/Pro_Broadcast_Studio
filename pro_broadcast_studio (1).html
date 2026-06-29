@@ -1197,24 +1197,13 @@
             const badge = document.getElementById('program-on-air');
             const nameEl = document.getElementById('program-layer-name');
 
-            let topSolidZ = -1;
-            for (let l of sorted) {
-                if (l.type === 'video' || l.type === 'camera') {
-                    topSolidZ = l.zIndex;
-                    break;
-                }
-            }
-
-            // Update all canvas layer elements: overlays above the top solid video remain visible
+            // Ensure all layers are visible so Picture-in-Picture compositing works
             document.querySelectorAll('#controller-preview-canvas .layer-element').forEach(el => {
                 const layerId = el.id.replace('ctrl-', '');
                 const layer = window.layers[layerId];
-                if (layer && layer.zIndex >= topSolidZ) {
+                if (layer) {
                     el.style.visibility = 'visible';
                     el.style.opacity = '1';
-                } else {
-                    el.style.visibility = 'hidden';
-                    el.style.opacity = '0';
                 }
             });
 
@@ -1233,7 +1222,7 @@
                 badge.classList.remove('flex');
             }
 
-            // Auto-Play #1 Video and Auto-Pause background videos (Broadcast Switcher Logic)
+            // Auto-Play #1 Video (Allow background videos to keep playing for PiP)
             const topSolidLayer = sorted.find(l => l.type === 'video' || l.type === 'camera');
             if (topSolidLayer && window._lastTopLayerId !== topSolidLayer.id) {
                 window._lastTopLayerId = topSolidLayer.id;
@@ -1254,9 +1243,6 @@
                         let dName = layer.type.toUpperCase();
                         if (layer.src) dName = layer.src.split('/').pop().split('?')[0].substring(0, 25);
                         setTimeout(() => window.vcActivate(layerId, dName), 100);
-                    } else {
-                        // Pause all background videos
-                        if (!media.paused) media.pause();
                     }
                 });
             } else if (!topSolidLayer) {
@@ -1291,6 +1277,40 @@
                 if (layer.type === 'text') name += `: ${layer.content}`;
                 else if (layer.src) name += `: ${layer.src.split('/').pop().substring(0, 20)}...`;
                 else name += ` Layer`;
+                
+                // Drag and Drop support
+                item.draggable = true;
+                item.ondragstart = (e) => {
+                    e.dataTransfer.setData('text/plain', layer.id);
+                    item.style.opacity = '0.5';
+                };
+                item.ondragend = () => { item.style.opacity = '1'; };
+                item.ondragover = (e) => {
+                    e.preventDefault();
+                    item.style.borderTop = '2px solid #3b82f6';
+                };
+                item.ondragleave = () => { item.style.borderTop = ''; };
+                item.ondrop = (e) => {
+                    e.preventDefault();
+                    item.style.borderTop = '';
+                    const draggedId = e.dataTransfer.getData('text/plain');
+                    if (draggedId && draggedId !== layer.id) {
+                        let arr = Object.values(window.layers).sort((a, b) => b.zIndex - a.zIndex);
+                        const draggedLayer = arr.find(l => l.id === draggedId);
+                        arr = arr.filter(l => l.id !== draggedId);
+                        const targetIndex = arr.findIndex(l => l.id === layer.id);
+                        arr.splice(targetIndex, 0, draggedLayer);
+                        
+                        let z = arr.length * 10;
+                        arr.forEach(l => {
+                            l.zIndex = z;
+                            z -= 10;
+                            renderControllerLayer(l.id);
+                            broadcastData({ type: 'UPDATE_LAYER', layer: l });
+                        });
+                        renderLayerStack();
+                    }
+                };
                 
                 item.innerHTML = `
                     <div class="flex items-center gap-3 overflow-hidden">
@@ -2711,24 +2731,12 @@
         }
 
         function updatePlayerVisibility() {
-            const sorted = Object.values(window.layers).sort((a, b) => b.zIndex - a.zIndex);
-            let topSolidZ = -1;
-            for (let l of sorted) {
-                if (l.type === 'video' || l.type === 'camera') {
-                    topSolidZ = l.zIndex;
-                    break;
-                }
-            }
-
             document.querySelectorAll('#player-layer-container .layer-element').forEach(el => {
                 const layerId = el.id.replace('play-', '');
                 const layer = window.layers[layerId];
-                if (layer && layer.zIndex >= topSolidZ) {
+                if (layer) {
                     el.style.visibility = 'visible';
                     el.style.opacity = '1';
-                } else {
-                    el.style.visibility = 'hidden';
-                    el.style.opacity = '0';
                 }
             });
         }
