@@ -1291,7 +1291,7 @@
                 if (layer.type === 'text') name += `: ${layer.content}`;
                 else if (layer.src) name += `: ${layer.src.split('/').pop().substring(0, 20)}...`;
                 else name += ` Layer`;
-
+                
                 item.innerHTML = `
                     <div class="flex items-center gap-3 overflow-hidden">
                         <span class="text-[10px] font-mono px-2 py-1 rounded shadow-inner ${isTop
@@ -1314,6 +1314,12 @@
         }
 
         // --- Media Input Handling ---
+        window.getNextZIndex = function() {
+            let maxZ = 0;
+            Object.values(window.layers).forEach(l => { if (l.zIndex > maxZ) maxZ = l.zIndex; });
+            return maxZ + 1;
+        };
+        
         window.addMediaLayerPath = function () {
             let src = document.getElementById('new-media-val').value.trim();
             if (!src) return;
@@ -1348,7 +1354,7 @@
             }
 
             const layer = {
-                id: 'layer_' + Date.now(), type, src, x: 960, y: 540, scale: 1, zIndex: Date.now(),
+                id: 'layer_' + Date.now(), type, src, x: 960, y: 540, scale: 1, zIndex: window.getNextZIndex(),
                 audio: { volume: 1, muted: false }
             };
             window.layers[layer.id] = layer;
@@ -1377,7 +1383,7 @@
                 audio: true
             }).then(stream => {
                 const layer = {
-                    id: 'layer_' + Date.now(), type: 'camera', x: 960, y: 540, scale: 1, zIndex: Date.now(),
+                    id: 'layer_' + Date.now(), type: 'camera', x: 960, y: 540, scale: 1, zIndex: window.getNextZIndex(),
                     audio: { volume: 1, muted: false }
                 };
                 
@@ -1405,7 +1411,7 @@
         window.createNewTextLayer = function () {
             const val = document.getElementById('new-text-val').value || 'LIVE TEXT';
             const layer = {
-                id: 'layer_' + Date.now(), type: 'text', content: val, x: 960, y: 540, scale: 1, zIndex: Date.now(),
+                id: 'layer_' + Date.now(), type: 'text', content: val, x: 960, y: 540, scale: 1, zIndex: window.getNextZIndex(),
                 styles: { color: '#ffffff', fontSize: 120 }
             };
             window.layers[layer.id] = layer;
@@ -1462,7 +1468,7 @@
             const layer = {
                 id: 'layer_' + Date.now(),
                 type: type,
-                x: x, y: y, scale: 1, zIndex: Date.now(),
+                x: x, y: y, scale: 1, zIndex: window.getNextZIndex(),
                 audio: { volume: 1, muted: false }
             };
 
@@ -1568,8 +1574,6 @@
 
                 if (layer.type === 'video') {
                     const vid = document.createElement('video');
-                    vid.setAttribute('data-output-format', 'UYVY');
-                    vid.setAttribute('data-render-format', 'VMR9');
                     vid.src = layer.src; vid.muted = true; // Kept muted in preview to prevent echo
                     vid.loop = true; vid.play().catch(e => e);
                     vid.style.width = '1920px'; vid.style.height = '1080px';
@@ -1594,8 +1598,6 @@
                     setTimeout(() => window.vcActivate(id, fileName), 100);
                 } else if (layer.type === 'camera') {
                     const vid = document.createElement('video');
-                    vid.setAttribute('data-output-format', 'UYVY');
-                    vid.setAttribute('data-render-format', 'VMR9');
                     if (window.localStreams[id]) vid.srcObject = window.localStreams[id];
                     vid.muted = true; // Always mute local camera in controller
                     vid.playsInline = true; vid.play().catch(e => e);
