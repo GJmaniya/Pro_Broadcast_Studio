@@ -1305,7 +1305,7 @@
                             l.zIndex = z;
                             z -= 10;
                             renderControllerLayer(l.id);
-                            broadcastData({ type: 'UPDATE_LAYER', layer: l });
+                            broadcastData({ type: 'UPDATE_LAYER', id: l.id, changes: { zIndex: l.zIndex } });
                         });
                         renderLayerStack();
                     }
