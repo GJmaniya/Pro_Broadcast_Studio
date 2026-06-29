@@ -1223,6 +1223,35 @@
                 badge.classList.add('hidden');
                 badge.classList.remove('flex');
             }
+
+            // Auto-Play #1 Video and Auto-Pause background videos (Broadcast Switcher Logic)
+            if (topLayer && window._lastTopLayerId !== topLayer.id) {
+                window._lastTopLayerId = topLayer.id;
+
+                document.querySelectorAll('#controller-preview-canvas .layer-element').forEach(el => {
+                    const layerId = el.id.replace('ctrl-', '');
+                    const layer = window.layers[layerId];
+                    if (!layer || (layer.type !== 'video' && layer.type !== 'audio')) return;
+                    
+                    const media = el.querySelector('video, audio');
+                    if (!media) return;
+                    
+                    if (layerId === topLayer.id) {
+                        // Play the new #1 video
+                        if (media.paused) media.play().catch(e=>e);
+                        
+                        // Auto-activate the persistent Video Controller card
+                        let dName = layer.type.toUpperCase();
+                        if (layer.src) dName = layer.src.split('/').pop().split('?')[0].substring(0, 25);
+                        setTimeout(() => window.vcActivate(layerId, dName), 100);
+                    } else {
+                        // Pause all background videos
+                        if (!media.paused) media.pause();
+                    }
+                });
+            } else if (!topLayer) {
+                window._lastTopLayerId = null;
+            }
         }
 
         // --- Layer Stack (Timeline) Rendering ---
@@ -2665,11 +2694,35 @@
                     if (qCanvas) startQualityRenderLoop(id, sourceVid, qCanvas);
                 }
             }
+            
+            updatePlayerVisibility();
+        }
+
+        function updatePlayerVisibility() {
+            const sorted = Object.values(window.layers).sort((a, b) => b.zIndex - a.zIndex);
+            const topLayer = sorted[0] || null;
+
+            document.querySelectorAll('#player-layer-container .layer-element').forEach(el => {
+                const layerId = el.id.replace('play-', '');
+                if (topLayer && layerId === topLayer.id) {
+                    el.style.visibility = 'visible';
+                    el.style.opacity = '1';
+                } else {
+                    el.style.visibility = 'hidden';
+                    el.style.opacity = '0';
+                }
+            });
         }
 
         function removePlayerLayerDOM(id) {
             const el = document.getElementById(`play-${id}`);
-            if (el) el.remove();
+            if (el) {
+                const vid = el.querySelector('video');
+                if (vid && vid.srcObject) vid.srcObject.getTracks().forEach(t => t.stop());
+                el.remove();
+            }
+            if (window._qualityCanvases[id]) delete window._qualityCanvases[id];
+            updatePlayerVisibility();
         }
     </script>
 </body>
