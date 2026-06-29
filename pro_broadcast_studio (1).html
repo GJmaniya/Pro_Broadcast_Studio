@@ -29,7 +29,7 @@
 
         .fixed-canvas {
             width: 1920px;
-            height: 1080px;
+            height: 1080px; 
             position: absolute;
             transform-origin: top left;
             overflow: hidden;
@@ -68,7 +68,7 @@
 
         #player-canvas {
             box-shadow: 0 0 100px rgba(0, 0, 0, 0.9);
-            background-color: #000;
+            background-color: transparent;
         }
 
         #player-wrapper {
@@ -77,7 +77,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background-color: #000;
+            background-color: transparent;
             overflow: hidden;
             position: relative;
         }
@@ -253,6 +253,12 @@
         .layer-stack-item.selected {
             border-color: #3b82f6;
             background: #1e1b4b;
+        }
+
+        .solid-layer {
+            width: 1920px;
+            height: 1080px;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -512,6 +518,11 @@
                     <!-- Transform Properties -->
                     <div class="space-y-4 mt-2">
                         <div>
+                            <label class="block text-xs font-medium text-zinc-400 mb-2">Opacity / Alpha Overlay</label>
+                            <input type="range" id="prop-opacity" min="0" max="1" step="0.01" value="1"
+                                class="w-full accent-purple-500">
+                        </div>
+                        <div>
                             <label class="block text-xs font-medium text-zinc-400 mb-2">Scale / Zoom (Uniform)</label>
                             <input type="range" id="prop-scale" min="0.05" max="5" step="0.05"
                                 class="w-full accent-blue-500">
@@ -670,6 +681,15 @@
                         </button>
                     </div>
 
+                    <!-- Alpha Overlay / Background -->
+                    <div class="bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-2">
+                        <label class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Alpha Overlay / Bg</label>
+                        <div class="flex gap-2">
+                            <input type="color" id="new-solid-color" class="w-10 h-9 rounded cursor-pointer bg-zinc-900 border border-zinc-700 p-0" value="#000000">
+                            <button onclick="createSolidLayer()" class="flex-1 bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-500 text-sm font-semibold whitespace-nowrap">+ Add Alpha Background</button>
+                        </div>
+                    </div>
+
                     <!-- Text Layer -->
                     <div class="bg-zinc-950/50 p-3 rounded-lg border border-zinc-800/50 flex flex-col gap-2">
                         <label class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Text
@@ -800,6 +820,8 @@
 
             if (hash.startsWith('#player')) {
                 document.getElementById('player-view').style.display = 'block';
+                document.body.style.backgroundColor = 'transparent';
+                document.getElementById('player-canvas').classList.remove('checkerboard');
                 initPlayer();
             } else if (hash.startsWith('#controller')) {
                 document.getElementById('controller-view').style.display = 'flex';
@@ -1206,7 +1228,8 @@
                 const layerId = el.id.replace('ctrl-', '');
                 if (topLayer && layerId === topLayer.id) {
                     el.style.visibility = 'visible';
-                    el.style.opacity = '1';
+                    const l = window.layers[layerId];
+                    el.style.opacity = (l && l.opacity !== undefined) ? l.opacity : '1';
                 } else {
                     el.style.visibility = 'hidden';
                     el.style.opacity = '0';
@@ -1394,6 +1417,17 @@
                 console.error(err);
                 alert("Camera access denied or unavailable.");
             });
+        };
+
+        window.createSolidLayer = function () {
+            const color = document.getElementById('new-solid-color').value || '#000000';
+            const layer = {
+                id: 'layer_' + Date.now(), type: 'solid', color: color, x: 960, y: 540, scale: 1, opacity: 0.8, zIndex: Date.now()
+            };
+            window.layers[layer.id] = layer;
+            renderControllerLayer(layer.id);
+            renderLayerStack();
+            broadcastData({ type: 'ADD_LAYER', layer: layer });
         };
 
         window.createNewTextLayer = function () {
@@ -1618,6 +1652,12 @@
                     const txt = document.createElement('div');
                     txt.className = 'text-layer';
                     el.appendChild(txt);
+                } else if (layer.type === 'solid') {
+                    const solid = document.createElement('div');
+                    solid.className = 'solid-layer';
+                    solid.style.width = '1920px';
+                    solid.style.height = '1080px';
+                    el.appendChild(solid);
                 }
 
                 // Middle Drag handler — clicking the canvas layer ONLY moves it, does NOT open properties panel
@@ -1634,6 +1674,13 @@
             el.style.top = `${layer.y}px`;
             el.style.transform = `translate(-50%, -50%) scale(${layer.scale})`;
             el.style.zIndex = layer.zIndex;
+
+            if (layer.type === 'solid') {
+                const solidNode = el.querySelector('.solid-layer');
+                if (solidNode && layer.color) {
+                    solidNode.style.backgroundColor = layer.color;
+                }
+            }
 
             if (layer.type === 'text') {
                 const txtNode = el.querySelector('.text-layer');
@@ -1675,6 +1722,7 @@
                 document.getElementById(`ctrl-${id}`).classList.add('selected');
                 document.getElementById('properties-panel').classList.remove('hidden');
                 document.getElementById('prop-scale').value = layer.scale.toFixed(2);
+                document.getElementById('prop-opacity').value = layer.opacity !== undefined ? layer.opacity : 1;
                 document.getElementById('prop-x').value = Math.round(layer.x);
                 document.getElementById('prop-y').value = Math.round(layer.y);
 
@@ -1735,6 +1783,9 @@
             document.getElementById('prop-text-size').addEventListener('input', (e) => {
                 const s = window.layers[window.selectedLayerId].styles;
                 updateProps({ styles: { ...s, fontSize: parseInt(e.target.value) || 10 } });
+            });
+            document.getElementById('prop-opacity').addEventListener('input', (e) => {
+                updateProps({ opacity: parseFloat(e.target.value) });
             });
 
             // Audio Mixer Listeners
@@ -2670,6 +2721,12 @@
                     const txt = document.createElement('div');
                     txt.className = 'text-layer';
                     el.appendChild(txt);
+                } else if (layer.type === 'solid') {
+                    const solid = document.createElement('div');
+                    solid.className = 'solid-layer';
+                    solid.style.width = '1920px';
+                    solid.style.height = '1080px';
+                    el.appendChild(solid);
                 }
             }
 
@@ -2678,6 +2735,13 @@
             el.style.top = `${layer.y}px`;
             el.style.transform = `translate(-50%, -50%) scale(${layer.scale})`;
             if (layer.zIndex !== undefined) el.style.zIndex = layer.zIndex;
+
+            if (layer.type === 'solid') {
+                const solidNode = el.querySelector('.solid-layer');
+                if (solidNode && layer.color) {
+                    solidNode.style.backgroundColor = layer.color;
+                }
+            }
 
             if (layer.type === 'text') {
                 const txtNode = el.querySelector('.text-layer');
@@ -2718,7 +2782,8 @@
                 const layerId = el.id.replace('play-', '');
                 if (topLayer && layerId === topLayer.id) {
                     el.style.visibility = 'visible';
-                    el.style.opacity = '1';
+                    const l = window.layers[layerId];
+                    el.style.opacity = (l && l.opacity !== undefined) ? l.opacity : '1';
                 } else {
                     el.style.visibility = 'hidden';
                     el.style.opacity = '0';
