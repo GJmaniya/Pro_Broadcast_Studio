@@ -2730,17 +2730,12 @@
         }
 
         function updatePlayerVisibility() {
-            const sorted = Object.values(window.layers).sort((a, b) => b.zIndex - a.zIndex);
-            const topLayer = sorted[0] || null;
-
             document.querySelectorAll('#player-layer-container .layer-element').forEach(el => {
                 const layerId = el.id.replace('play-', '');
-                if (topLayer && layerId === topLayer.id) {
+                const layer = window.layers[layerId];
+                if (layer) {
                     el.style.visibility = 'visible';
                     el.style.opacity = '1';
-                } else {
-                    el.style.visibility = 'hidden';
-                    el.style.opacity = '0';
                 }
             });
         }
