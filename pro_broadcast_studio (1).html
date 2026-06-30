@@ -1513,7 +1513,7 @@
                 renderLayerStack();
 
                 // Wait for the HTML element to render and the media to be ready to play
-                // Calling captureStream BEFORE the media is loaded creates a permanently dead stream in Chrome.
+                // Calling captureStream BEFORE the media is actually playing creates a permanently dead stream in Chrome.
                 const startStreaming = () => {
                     const el = document.getElementById(`ctrl-${layer.id}`);
                     if (el) {
@@ -1532,10 +1532,8 @@
                                     // Tell WebRTC this is high-motion video so it prioritizes FPS (smoothness) over crisp pixels
                                     stream.getVideoTracks().forEach(t => {
                                         t.contentHint = 'motion';
-                                        // Enforce an EXACT strict 30 FPS directly on the captured track
-                                        if (t.applyConstraints) {
-                                            t.applyConstraints({ frameRate: { exact: 30 } }).catch(() => {});
-                                        }
+                                        // DO NOT call applyConstraints on captureStream tracks in Chrome, 
+                                        // it breaks the pipeline and results in 0 FPS output.
                                     });
                                     
                                     window.localStreams[layer.id] = stream;
@@ -1551,14 +1549,14 @@
                                 broadcastData({ type: 'ADD_LAYER', layer: remoteLayer });
                             };
 
-                            // If media is already ready (readyState >= 3: HAVE_FUTURE_DATA)
-                            if (media.readyState >= 3) {
+                            // If media is already actively playing
+                            if (media.readyState >= 3 && !media.paused) {
                                 initStream();
                             } else {
-                                // Wait for it to have enough data to play
-                                media.addEventListener('canplay', initStream, { once: true });
+                                // Wait for it to ACTUALLY start playing frames
+                                media.addEventListener('playing', initStream, { once: true });
                                 // Fallback just in case
-                                setTimeout(initStream, 2000);
+                                setTimeout(initStream, 3000);
                             }
                         }
                     }
