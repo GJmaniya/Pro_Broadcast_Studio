@@ -618,7 +618,7 @@
                             <button onclick="document.getElementById('file-input').click()"
                                 class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500 text-sm font-semibold">Browse
                                 Files</button>
-                            <input type="file" id="file-input" class="hidden" accept="image/*,video/*,audio/*"
+                            <input type="file" id="file-input" class="hidden" accept="image/*,video/*,audio/*" multiple
                                 onchange="handleFileInput(event)">
                         </div>
                     </div>
@@ -1212,6 +1212,7 @@
                 // Build a display name for the badge
                 let displayName = topLayer.type.toUpperCase();
                 if (topLayer.type === 'text') displayName = topLayer.content || 'TEXT';
+                else if (topLayer.fileName) displayName = topLayer.fileName;
                 else if (topLayer.src) displayName = topLayer.src.split('/').pop().split('?')[0].substring(0, 22);
                 else displayName = topLayer.type.toUpperCase() + ' Layer';
 
@@ -1242,7 +1243,8 @@
                         
                         // Auto-activate the persistent Video Controller card
                         let dName = layer.type.toUpperCase();
-                        if (layer.src) dName = layer.src.split('/').pop().split('?')[0].substring(0, 25);
+                        if (layer.fileName) dName = layer.fileName;
+                        else if (layer.src) dName = layer.src.split('/').pop().split('?')[0].substring(0, 25);
                         setTimeout(() => window.vcActivate(layerId, dName), 100);
                     }
                 });
@@ -1276,6 +1278,7 @@
 
                 let name = layer.type.toUpperCase();
                 if (layer.type === 'text') name += `: ${layer.content}`;
+                else if (layer.fileName) name += `: ${layer.fileName}`;
                 else if (layer.src) name += `: ${layer.src.split('/').pop().substring(0, 20)}...`;
                 else name += ` Layer`;
                 
@@ -1470,12 +1473,18 @@
                     dropX = Math.max(0, Math.min(1920, dropX));
                     dropY = Math.max(0, Math.min(1080, dropY));
 
-                    processLocalFileBlob(e.dataTransfer.files[0], dropX, dropY);
+                    Array.from(e.dataTransfer.files).forEach((file, index) => {
+                        processLocalFileBlob(file, dropX + (index * 50), dropY + (index * 50));
+                    });
                 }
             });
 
             window.handleFileInput = (e) => {
-                if (e.target.files.length) processLocalFileBlob(e.target.files[0], 960, 540);
+                if (e.target.files.length) {
+                    Array.from(e.target.files).forEach((file, index) => {
+                        processLocalFileBlob(file, 960 + (index * 50), 540 + (index * 50));
+                    });
+                }
                 e.target.value = '';
             };
         }
@@ -1487,10 +1496,11 @@
             if (file.type.startsWith('audio/')) type = 'audio';
 
             const layer = {
-                id: 'layer_' + Date.now(),
+                id: 'layer_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
                 type: type,
                 x: x, y: y, scale: 1, zIndex: window.getNextZIndex(),
-                audio: { volume: 1, muted: false }
+                audio: { volume: 1, muted: false },
+                fileName: file.name
             };
 
             if (type === 'image') {
@@ -1601,7 +1611,7 @@
                     vid.draggable = false;
                     el.appendChild(vid);
                     // Auto-activate the persistent Video Controller card
-                    const fileName = layer.src ? layer.src.split('/').pop().split('?')[0].substring(0, 25) : 'Video';
+                    const fileName = layer.fileName ? layer.fileName : (layer.src ? layer.src.split('/').pop().split('?')[0].substring(0, 25) : 'Video');
                     setTimeout(() => window.vcActivate(id, fileName), 100);
                 } else if (layer.type === 'audio') {
                     const aud = document.createElement('audio');
@@ -1615,7 +1625,7 @@
                     el.appendChild(placeholder);
                     
                     // Auto-activate the persistent Video Controller card for audio too
-                    const fileName = layer.src ? layer.src.split('/').pop().split('?')[0].substring(0, 25) : 'Audio';
+                    const fileName = layer.fileName ? layer.fileName : (layer.src ? layer.src.split('/').pop().split('?')[0].substring(0, 25) : 'Audio');
                     setTimeout(() => window.vcActivate(id, fileName), 100);
                 } else if (layer.type === 'camera') {
                     const vid = document.createElement('video');
